@@ -11,7 +11,11 @@ from enum import Enum, auto
 import numpy as np
 import zmq
 import asyncio
+from zmq.asyncio import Context
+import tornado
 from tornado.ioloop import IOLoop
+import logging
+
 
 #import path to in-house modules depends on the platform
 import platform
@@ -26,7 +30,7 @@ if 'x86' in this_platform:
   import metrology
 elif 'arm' in this_platform:
   print('arm os')
-  sys.path.append("/home/pocketnc/ippclient")
+  sys.path.append("/opt/ippclient")
   from ipp import Client, TransactionCallbacks, float3, CmmException, readPointData
   import ipp_routines as routines
 
@@ -35,15 +39,16 @@ elif 'arm' in this_platform:
   sys.path.append("/opt/pocketnc/Rockhopper")
   import ini
 
-
-HOST = "10.0.0.1"
-PORT = 1294
-
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 def reload():
   importlib.reload(routines)
   importlib.reload(metrology)
 
+
+IPADDR_CMM = "10.0.0.1"
+PORT_CMM = 1294
 
 POCKETNC_DIRECTORY = "/var/opt/pocketnc"
 POCKETNC_VAR_DIRECTORY = os.environ.get('POCKETNC_VAR_DIRECTORY')
@@ -56,6 +61,9 @@ newCalFilename = os.path.join(POCKETNC_VAR_DIRECTORY, "calib/CalibrationOverlay.
 aCompFileName = os.path.join(POCKETNC_VAR_DIRECTORY, "calib/a.comp")
 bCompFileName = os.path.join(POCKETNC_VAR_DIRECTORY, "calib/b.comp")
 
+
+def err_msg(msg):
+  return "CMM_CALIB_ERROR: %s" % msg
 
 def find_line_intersect_2d(line1, line2):
     xdiff = (line1[0][0] - line1[1][0], line2[0][0] - line2[1][0])
@@ -131,73 +139,105 @@ End position check (ensure we didn't move during process)
 Calculate results
 '''
 
+
+'''
+A step is an action or set of actions. 
+Some steps are repeated (e.g. probing, clearance moves)
+Some only once (e.g. setting up coord systems)
+'''
 class Steps(Enum):
   CONNECT_TO_CMM = auto()
-  SETUP_CMM = auto()
   GO_TO_CLEARANCE_Z = auto()
   GO_TO_CLEARANCE_Y = auto()
-  VERIFY_MACHINE_POS = auto()
-  CALC_PART_COORD_SYS = auto()
-  SETUP_CNC_COORD_SYS = auto()
-  FIND_B_COR = auto()
-  FIND_TOP_PLANE = auto()
-  PROBE_X = auto()
+  SETUP_CMM = auto()
+  SETUP_PART_CSY = auto()
+  SETUP_CNC_CSY = auto()
+  PROBE_MACHINE_POS = auto()
+  PROBE_TOP_PLANE = auto()
+  PROBE_X = auto() 
   PROBE_Y = auto()
   PROBE_Z = auto()
   PROBE_A = auto()
   PROBE_B = auto()
-  FIND_POS_A = auto()
+  '''
+  the find_pos_ steps use the same methods as probe_ steps, 
+  but use a different name for the metrology feature, 
+  and return the measured value instead of returning nothing
+  '''
+  FIND_POS_A = auto() 
   FIND_POS_B = auto()
-  FIND_POS_Z = auto()
   WRITE_RESULTS = auto()
-  END = auto()
-  TEST_HEAD = auto()
+  VERIFY = auto()
+  DISCONNECT_FROM_CMM = auto()
 
   @classmethod
   def has_name(cls, name):
       return name in cls._member_names_ 
 
-
+'''
+A stage is a progress point in the Calibration Process
+The CalibManager
+Steps may be repeated with (e.g. probing) or not (setting up coord systems)
+'''
 class Stages(Enum):
-  CONNECT_TO_CMM = auto()
   SETUP_CMM = auto()
-  VERIFY_MACHINE_POS = auto()
-  CALC_PART_COORD_SYS = auto()
-  FIND_B_COR = auto()
-  FIND_TOP_PLANE = auto()
-  CHARACTERIZE_X = auto()
-  CHARACTERIZE_Y = auto()
-  CHARACTERIZE_Z = auto()
-  CHARACTERIZE_A = auto()
-  CHARACTERIZE_B = auto()
+  PROBE_MACHINE_POS = auto()
+  SETUP_PART_CSY = auto()
+  # PROBE_X = auto()
+  # PROBE_Y = auto()
+  PROBE_Z = auto()
+  PROBE_TOP_PLANE = auto()
+  SETUP_CNC_CSY = auto()
+  PROBE_A = auto()
+  PROBE_B = auto()
   WRITE_RESULTS = auto()
-  END = auto()
-  TEST_HEAD = auto()
+  VERIFY = auto()
 
   @classmethod
   def has_name(cls, name):
       return name in cls._member_names_ 
 
 
+'''
+Some steps have prequisite stages that must be completed before they can be run
+'''
 STEP_PREREQS = {
-  Steps.SETUP_CMM: [Stages.CONNECT_TO_CMM],
-  Steps.GO_TO_CLEARANCE_Z: [Stages.CONNECT_TO_CMM],
-  Steps.GO_TO_CLEARANCE_Y: [Stages.CONNECT_TO_CMM],
-  Steps.VERIFY_MACHINE_POS: [Stages.SETUP_CMM],
-  Steps.CALC_PART_COORD_SYS: [Stages.VERIFY_MACHINE_POS],
-  Steps.PROBE_A: [Stages.CALC_PART_COORD_SYS],#[Stages.VERIFY_MACHINE_POS],
-  Steps.PROBE_B: [Stages.CALC_PART_COORD_SYS],#[Stages.VERIFY_MACHINE_POS],
-  Steps.PROBE_Z: [Stages.CALC_PART_COORD_SYS],#[Stages.VERIFY_MACHINE_POS],
+  Steps.GO_TO_CLEARANCE_Z: [Stages.SETUP_CMM],
+  Steps.GO_TO_CLEARANCE_Y: [Stages.SETUP_CMM],
+  Steps.PROBE_MACHINE_POS: [Stages.SETUP_CMM],
+  # Steps.SETUP_PART_CSY: [Stages.PROBE_MACHINE_POS],
+  Steps.PROBE_TOP_PLANE: [Stages.SETUP_PART_CSY],
+  # Steps.PROBE_X: [Stages.SETUP_PART_CSY],
+  # Steps.PROBE_Y: [Stages.SETUP_PART_CSY],
+  Steps.PROBE_Z: [Stages.SETUP_PART_CSY],
+  # Steps.SETUP_CNC_CSY: [Stages.PROBE_Z, Stages.PROBE_TOP_PLANE],
+  Steps.FIND_POS_A: [Stages.SETUP_CNC_CSY],
+  Steps.FIND_POS_B: [Stages.SETUP_CNC_CSY],
+  Steps.PROBE_A: [Stages.SETUP_CNC_CSY],
+  Steps.PROBE_B: [Stages.SETUP_CNC_CSY],
+  # Steps.WRITE_RESULTS: [Stages.PROBE_A, Stages.PROBE_B],
+  # Steps.VERIFY: [Stages.WRITE_RESULTS],
 }
+
 
 STAGE_PREREQS = {
-  Stages.SETUP_CMM: [Stages.CONNECT_TO_CMM],
-  Stages.VERIFY_MACHINE_POS: [Stages.SETUP_CMM],
-  Stages.CALC_PART_COORD_SYS: [Stages.VERIFY_MACHINE_POS],
-  Stages.CHARACTERIZE_A: [Stages.CALC_PART_COORD_SYS],#[Stages.VERIFY_MACHINE_POS],
-  Stages.CHARACTERIZE_B: [Stages.CALC_PART_COORD_SYS],#[Stages.VERIFY_MACHINE_POS],
-  Stages.CHARACTERIZE_Z: [Stages.CALC_PART_COORD_SYS],#[Stages.VERIFY_MACHINE_POS],
+  Stages.PROBE_MACHINE_POS: [Stages.SETUP_CMM],
+  Stages.SETUP_PART_CSY: [Stages.PROBE_MACHINE_POS],
+  # Stages.PROBE_X: [Stages.SETUP_PARTCSY],
+  # Stages.PROBE_Y: [Stages.SETUP_PARTCSY],
+  Stages.PROBE_Z: [Stages.SETUP_PART_CSY],
+  Stages.PROBE_TOP_PLANE: [Stages.SETUP_PART_CSY],
+  Stages.SETUP_CNC_CSY: [Stages.PROBE_Z, Stages.PROBE_TOP_PLANE],
+  Stages.PROBE_A: [Stages.SETUP_CNC_CSY],
+  Stages.PROBE_B: [Stages.SETUP_CNC_CSY],
+  # Stages.WRITE_RESULTS: [Stages.PROBE_A, Stages.PROBE_A],
 }
+
+STATE_RUN = 'RUN'
+STATE_IDLE = 'IDLE'
+STATE_ERROR = 'ERROR'
+STATE_PAUSE = 'PAUSE'
+STATE_STOP = 'STOP'
 
 FIXTURE_SIDE = 76.2
 FIXTURE_DIAG = 107.76
@@ -213,10 +253,22 @@ PROBE_DIA = 4
 TOOL_3_LENGTH = 117.8
 B_LINE_LENGTH = 35
 
+Z_MIN_LIMIT_V2_10_INCHES = -3.451
+Z_MIN_LIMIT_V2_50_INCHES = -3.541
+
 Z_MIN = -26
 Z_STEP = -25
-A_STEP = 5
 B_STEP = 5
+B_MIN = 0
+B_MAX = 360
+A_STEP = 5
+A_MIN = -25
+A_MAX = 135
+X_PROBE_END_TRIGGER = -24
+Y_PROBE_END_TRIGGER = -24
+Z_PROBE_END_TRIGGER = -24
+A_PROBE_END_TRIGGER = 129
+B_PROBE_END_TRIGGER = 356
 
 V2_10_PROPS = {
   'A_MIN': -25,
@@ -232,7 +284,6 @@ V2_50_PROPS = {
   'Z_MIN': -3.541,
 }
 
-
 FIXTURE_OFFSET_B_ANGLE = 225
 OFFSET_B_POS_REL_Z = 135
 OFFSET_B_NEG_REL_Z = 225
@@ -246,14 +297,19 @@ D_MAT = np.array([[0,1,0,0],[0,0,1,0],[0,0,0,1],[1,1,1,1]])
 waypoints_from_pocket_origin = {
   'origin': float3(0.0, 0.0, 0.0),
   'top_l_bracket_front_right': float3(0.0, 0.0, 0.0),
-  'top_l_bracket_back_right': float3(14.4, 18.5, 0.0),
-  'probe_fixture_tip': float3(-33.89999999999998, -129.5, -83.53),
-  'probe_fixture_tip_from_origin': float3(-406.7, -598.5, -199.32999999999998),
-  'b_rot_cent_approx': float3(-60.329999999999984, -108.87, -0.3299999999999983),
-  'a_rot_cent_approx': float3(-63.099999999999966, -35.69999999999999, -6.929999999999993),
-  'z_home': float3(42.5, -49.25, -68.83),
-}
+  'top_l_bracket_back_right': float3(18.4, 22.5, 0.0),
+  'probe_fixture_tip': float3(-33.90, -129.5, -83.53),
+  'probe_fixture_tip_from_origin': float3(-406.7, -598.5, -199.33),
+  # move maybe -2 in X from b_cor 
+  # have now done that (from -108.87 to -110.87)
+  # well... that was Y... soooo.... lets go from (-60.33, -110.87) to (-62.33, -108.87)
+  # now looks like maybe -5 in Y from b_cor, start with -3... from (-62.33, -108.87, -0.33) to (-62.33, -111.87, -0.33)
 
+  'b_rot_cent_approx': float3(-62.33, -111.87, -0.33),
+  'a_rot_cent_approx': float3(-63.10, -35.70, -6.93),
+  'z_home_50': float3(42.5, -49.25, -68.83),
+  'z_home_10': float3(72.0, -50.50, -68.83),
+}
 
 waypoints_table_center = {
   'top_l_bracket_back_right': float3(371.9, 466.8, 126.33),
@@ -311,6 +367,8 @@ Characterize B motion
 
 calibManagerInstance = None
 
+# ctx = Context.instance()
+
 class CalibManager:
   def __init__(self):
     self.client = None
@@ -321,9 +379,11 @@ class CalibManager:
     # you'll need to look at the metrology module to see the meaning of the tuple values
     self.fitted_features = {}
 
+    self.run_state = None
+    self.is_running = False
     self.stages_completed = {}
     for stage in Stages:
-      self.stages_completed[stage] = False
+      self.stages_completed[str(stage)[len("Stages."):]] = False
     # self._stage2methods_map_ = {
     #   Stages.SETUP_CMM = self.setupCMM,
     #   Stages.VERIFY_POS = self.verifyMachinePos,
@@ -331,7 +391,14 @@ class CalibManager:
     # }
     self.is_started_a = False
     self.is_started_b = False
-    self.machine_props = V2_50_PROPS
+
+    # self.model = "V2-10"
+    # waypoints['z_home'] = waypoints['z_home_10']
+    # self.machine_props = V2_10_PROPS
+    # self.model = "V2-50"
+    # waypoints['z_home'] = waypoints['z_home_50']
+    # self.machine_props = V2_50_PROPS
+
     self.is_cmm_error = False
     self.table_slot = None
     self.part_csy_pos = None
@@ -341,6 +408,7 @@ class CalibManager:
     self.b_probes = []
 
     self.ini_data = ini.read_ini_data(mainPocketNCINIFileName)
+    self.overlay_data = ini.read_ini_data(calibrationOverlayFileName)
 
     self.active_offsets = {}
     self.active_offsets['x'] =  float(ini.get_parameter(self.ini_data, "JOINT_0", "HOME_OFFSET")["values"]["value"])
@@ -368,22 +436,40 @@ class CalibManager:
     return calibManagerInstance
 
   async def zmq_listen(self):
-    while True:
-      context = zmq.Context()
-      socket = context.socket(zmq.REQ)
-      socket.connect('tcp://127.0.0.1:5555')
-      msg = await socket.recv()
-      # socket.send_string("yoooooo")
-      await socket.send_pyobj(self.stages_completed)
-      # msg = socket.recv()
-
-  def zmq_report(self):
-    context = zmq.Context()
-    socket = context.socket(zmq.REQ)
+    # context = zmq.Context()
+    # socket = context.socket(zmq.REQ)
+    socket = ctx.socket(zmq.REQ)
     socket.connect('tcp://127.0.0.1:5555')
-    # socket.send_string("yoooooo")
-    socket.send_pyobj(self.stages_completed)
-    # msg = socket.recv()
+    while True:
+      print('awaiting zmq message')
+      msg = await socket.recv()
+      print('got zmq message')
+      print(msg)
+      # socket.send_string("yoooooo")
+      # await socket.send_pyobj(self.stages_completed)
+      # msg = socket.recv()
+    socket.close()
+
+  def zmq_report(self, why_string='UPDATE'):
+    print('zmq report start')
+    try:
+      report = {}
+      report['why'] = why_string
+      report['stages'] = self.stages_completed
+      report['state'] = self.run_state
+
+      context = zmq.Context()
+      socket = context.socket(zmq.PUSH)
+      socket.bind('tcp://127.0.0.1:5555')
+      # socket.send_string("yoooooo")
+      # socket.send_pyobj(self.stages_completed)
+
+      socket.send_json(report)
+      print('zmq report sent')
+      # msg = socket.recv()
+    except Exception as e:
+        print('exception in zmq_report')
+        print(e)
 
   def reload_features(self):
     for f in self.metrologyManager:
@@ -410,18 +496,33 @@ class CalibManager:
     #   self.metrologyManager.pop()
 
   def save_features(self):
-    with open('/sysroot/home/pocketnc/savefile', 'w') as f:
-      for k in self.feature_ids.keys():
-        if True:#k.find("proj") == -1 and k.find("b_circle") == -1:
-          f.write("\n\n%s\n" % k)
-          fid = self.feature_ids[k]
-          feat = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
-          for pt in feat.points():
-            f.write("%s\n" % pt)
+    try:
+      savefile_path = ''
+      if os.path.isdir('/sysroot/home/pocketnc'):
+        savefile_path = '/sysroot/home/pocketnc/savefile'
+      else:
+        savefile_path = '/home/pocketnc/savefile'
+      with open(savefile_path, 'w') as f:
+        for k in self.feature_ids.keys():
+          if True:#k.find("proj") == -1 and k.find("b_circle") == -1:
+            f.write("\n\n%s\n" % k)
+            fid = self.feature_ids[k]
+            feat = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
+            for pt in feat.points():
+              f.write("%s\n" % pt)
+    except Exception as e:
+      print("Exception saving features")
+      print(e)
+      raise e
 
   def load_features(self):
     try:
-      with open('/sysroot/home/pocketnc/savefile', 'r') as f:
+      savefile_path = ''
+      if os.path.isdir('/sysroot/home/pocketnc'):
+        savefile_path = '/sysroot/home/pocketnc/savefile'
+      else:
+        savefile_path = '/home/pocketnc/savefile'
+      with open(savefile_path, 'r') as f:
         lines = f.readlines()
         i = 0
         while i < len(lines)-2:
@@ -465,69 +566,188 @@ class CalibManager:
       print(e)
   
   def is_ready_for_step(self, step):
+    print('checking is_ready_for_step')
+    if step in STEP_PREREQS:
+      print('step has prereqs')
+      for prereqStage in STEP_PREREQS[step]:
+        print('prereq stage %s ' % prereqStage)
+        if not self.stages_completed[str(prereqStage)[len("Stages."):]]:
+          return False
     return True
 
+  def std_stage_complete_check(self, ret):
+    if ret is True:
+      return True
+    else:
+      return False
+
+  def did_step_complete_stage(self, step, ret, *args):
+    if step in [
+      Steps.CONNECT_TO_CMM, Steps.GO_TO_CLEARANCE_Z, Steps.GO_TO_CLEARANCE_Y,
+      Steps.FIND_POS_A, Steps.FIND_POS_B, Steps.DISCONNECT_FROM_CMM
+    ]:
+      return (False, None)
+    elif step is Steps.SETUP_CMM:
+      return (self.std_stage_complete_check(ret), Stages.SETUP_CMM)
+    elif step is Steps.SETUP_PART_CSY:
+      return (self.std_stage_complete_check(ret), Stages.SETUP_PART_CSY)
+    elif step is Steps.SETUP_CNC_CSY:
+      return (self.std_stage_complete_check(ret), Stages.SETUP_CNC_CSY)
+    elif step is Steps.PROBE_MACHINE_POS:
+      return (self.std_stage_complete_check(ret), Stages.PROBE_MACHINE_POS)
+    elif step is Steps.PROBE_TOP_PLANE:
+      return (self.std_stage_complete_check(ret), Stages.PROBE_TOP_PLANE)
+    elif step is Steps.PROBE_A:
+      print('checking if PROBE_A completed')
+      print(*args)
+      if ret is True:
+        nominal_a_pos = args[2]
+        if nominal_a_pos >= A_PROBE_END_TRIGGER:
+          return(True, Stages.PROBE_A)
+        else:
+          return (False, Stages.PROBE_A)
+      else:
+        return (False, Stages.PROBE_A)
+    elif step is Steps.PROBE_B:
+      print('checking if PROBE_B completed')
+      print(*args)
+      if ret is True:
+        nominal_b_pos = args[2]
+        if nominal_b_pos >= B_PROBE_END_TRIGGER:
+          return(True, Stages.PROBE_B)
+        else:
+          return (False, Stages.PROBE_B)
+      else:
+        return (False, Stages.PROBE_B)
+    elif step is Steps.PROBE_X:
+      print('checking if PROBE_X completed')
+      print(*args)
+      if ret is True:
+        nominal_x_pos = args[1]
+        if nominal_x_pos <= X_PROBE_END_TRIGGER:
+          return(True, Stages.PROBE_X)
+        else:
+          return (False, Stages.PROBE_X)
+      else:
+        return (False, Stages.PROBE_X)
+    elif step is Steps.PROBE_Y:
+      print('checking if PROBE_Y completed')
+      print(*args)
+      if ret is True:
+        nominal_y_pos = args[1]
+        if nominal_y_pos <= Y_PROBE_END_TRIGGER:
+          return(True, Stages.PROBE_Y)
+        else:
+          return (False, Stages.PROBE_Y)
+      else:
+        return (False, Stages.PROBE_Y)
+    elif step is Steps.PROBE_Z:
+      print('checking if PROBE_Z completed')
+      print(*args)
+      if ret is True:
+        nominal_z_pos = args[1]
+        print(nominal_z_pos)
+        if nominal_z_pos <= Z_PROBE_END_TRIGGER:
+          print('yes z probe complete')
+          return(True, Stages.PROBE_Z)
+        else:
+          print('no z probe not complete')
+          return (False, Stages.PROBE_Z)
+      else:
+        return (False, Stages.PROBE_Z)
+    elif step is Steps.WRITE_RESULTS:
+      return (self.std_stage_complete_check(ret), Stages.WRITE_RESULTS)
+    else:
+      #doubled up until I confirm logger is configured to print
+      print("Ran a STEP without entry in did_step_complete_stage")
+      logger.debug("Ran a STEP without entry in did_step_complete_stage")
+
+
+  '''
+  the find_pos_ steps use the same methods as probe_ steps, 
+  but use a different name for the metrology feature, 
+  and return the measured value instead of returning nothing
+  '''
   def run_step(self, step, *args):
     print("Running step: %s " % step)
     # an exception will be thrown if step is not defined in the Steps enum
     if type(step) is str:
       step = Step[step.upper()]
     step in Steps
-    
+    print('step is defined')
     if not self.is_ready_for_step(step):
-      return False
-    
+      print('not ready for step')
+      return err_msg("1 or more prerequisite STAGES not complete before running STEP %s")
+    print('ready for step')
     step_method = getattr(self, step.name.lower())
+    print('step method is %s ' % str(step_method))
     try:
-      stepReturnValue = asyncio.get_event_loop().run_until_complete(step_method(*args))
-      print('completing step %s' % step)
-      print('return value %s' % stepReturnValue)
-      return stepReturnValue
+      self.run_state = STATE_RUN
+      self.is_running = True
+      self.zmq_report('UPDATE')
+      step_ret = asyncio.get_event_loop().run_until_complete(step_method(*args))
+      print('step ran')
+      did_a_stage_complete, stage_for_step = self.did_step_complete_stage(step, step_ret, *args)
+      if did_a_stage_complete:
+        #putting this in an if statement because maybe some steps will be run again 
+        #AFTER their 'normal' stage is completed
+        self.stages_completed[str(stage_for_step)[len("Stages."):]] = did_a_stage_complete
+        self.is_running = False
+        self.run_state = STATE_IDLE
+        logger.debug('completing step %s' % step)
+      
+      logger.debug('step %s return value %s' % (step, step_ret))
+      self.zmq_report('STEP_COMPLETE')
+      print('returning %s' % step_ret)
+      return step_ret
       # self.stages_completed[stage] = isStageComplete
     except CmmException as e:
-      print("Failed running step %s" % step)
-      return False
+      msg = err_msg("Failed running step %s, exception message %s" % (step, str(e)))
+      self.is_running = False
+      self.run_state = STATE_ERROR
+      self.zmq_report('ERROR')
+      print(msg)
+      logger.debug(msg)
+      return msg
 
+  # def run_stage(self, stage, *args):
+  #   print("Running stage: %s " % stage)
+  #   # an exception will be thrown if stage is not defined in the Stages enum
+  #   if type(stage) is str:
+  #     print("type is string")
+  #     stage = Stages[stage.upper()]
+  #     print("stage is ")
+  #     print(stage)
+  #   stage in Stages
+  #   print('stage in stages')
 
+  #   # try:
+  #   #   if self.client is not None and self.client.stream is not None:
+  #   #     print('trying to disconnect')
+  #   #     asyncio.get_event_loop().run_until_complete(self.client.disconnect())
+  #   # except Exception as e:
+  #   #   print("disconnect e: %s" % e)
 
-  def run_stage(self, stage, *args):
-    print("Running stage: %s " % stage)
-    # an exception will be thrown if stage is not defined in the Stages enum
-    if type(stage) is str:
-      print("type is string")
-      stage = Stages[stage.upper()]
-      print("stage is ")
-      print(stage)
-    stage in Stages
-    print('stage in stages')
+  #   if stage in STAGE_PREREQS:
+  #     print('stage has prereqs')
 
-    # try:
-    #   if self.client is not None and self.client.stream is not None:
-    #     print('trying to disconnect')
-    #     asyncio.get_event_loop().run_until_complete(self.client.disconnect())
-    # except Exception as e:
-    #   print("disconnect e: %s" % e)
-
-    if stage in STAGE_PREREQS:
-      print('stage has prereqs')
-
-      for prereqStage in STAGE_PREREQS[stage]:
-        print(prereqStage)
-        if not self.stages_completed[prereqStage]:
-          self.run_stage(prereqStage)
+  #     for prereqStage in STAGE_PREREQS[stage]:
+  #       print(prereqStage)
+  #       if not self.stages_completed[str(prereqStage)[len("Stages."):]]:
+  #         self.run_stage(prereqStage)
     
-    # if stage != Stages.CONNECT_TO_CMM and (self.client is None or self.client.stream is None):
-    #   #something broken, quit
-    #   return "FAILED"
+  #   # if stage != Stages.CONNECT_TO_CMM and (self.client is None or self.client.stream is None):
+  #   #   #something broken, quit
+  #   #   return "FAILED"
 
-    stage_method = getattr(self, stage.name.lower())
-    try:
-      isStageComplete = asyncio.get_event_loop().run_until_complete(stage_method(*args))
-      print('completing stage %s' % stage)
-      self.stages_completed[stage] = isStageComplete
-    except CmmException as e:
-      print("Failed running stage %s" % stage)
-      return "FAILED"
+  #   stage_method = getattr(self, stage.name.lower())
+  #   try:
+  #     isStageComplete = asyncio.get_event_loop().run_until_complete(stage_method(*args))
+  #     print('completing stage %s' % stage)
+  #     self.stages_completed[str(stage)[len("Stages."):]] = isStageComplete
+  #   except CmmException as e:
+  #     print("Failed running stage %s" % stage)
+  #     return "FAILED"
 
 
   async def connect_to_cmm(self):
@@ -540,10 +760,13 @@ class CalibManager:
     except Exception as e:
       print("disconnect e: %s" % e)
     
-    self.client = None
-    self.client = Client(HOST, PORT)
-    await self.client.connect()
-    return True
+    try:
+      self.client = None
+      self.client = Client(IPADDR_CMM, PORT_CMM)
+      await self.client.connect()
+      return True
+    except Exception as e:
+      print("Exception while connecting")
 
   async def setup_cmm(self):
     await self.client.ClearAllErrors().complete()
@@ -578,7 +801,7 @@ class CalibManager:
     await self.client.SetCoordSystem("PartCsy").complete()
     return True
 
-  async def verify_machine_pos(self):
+  async def probe_machine_pos(self):
     '''
     Locate machine and verify it is in home position
     '''
@@ -725,11 +948,16 @@ class CalibManager:
       print("CmmExceptions %s" % ex)
 
 
-  async def calc_part_coord_sys(self):
+  async def setup_part_csy(self):
     '''
-    Calculate the V2's orientation and position using data from verify_machine_pos
-    Rotation will only be about the CMM Z axis,
-    calibration will be halted if the machine is tilted signficantly relative to the CMM XY plane.
+    Setup PartCsy
+      PartCsy is a coord system in the IPP spec, it is used for majority of this process
+      Calculate the V2's orientation and position using data from verify_machine_pos
+      Rotation will only be about the CMM Z axis,
+      calibration will be halted if the machine is tilted signficantly relative to the CMM XY plane.
+
+    Also, detect model of V2 by inspecting axis limits/offsets values from ini, 
+    set model-dependent dimension/waypoint values
     '''
     fid = self.feature_ids['L_bracket_top_face']
     L_bracket_top_face = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
@@ -772,8 +1000,6 @@ class CalibManager:
     print('dist')
     print(dist)
     pos_to_orig_xy_ang = math.atan2( pos_to_orig.y, pos_to_orig.x ) * 180/math.pi
-    print('pos_to_orig_xy_ang')
-    print(pos_to_orig_xy_ang)
     ang_true_pos_to_true_orig = pos_to_orig_xy_ang - ang_machine_z_to_partcsy_x
     origin_offset = intersect_pos + float3(1,0,0) * dist * math.cos((ang_true_pos_to_true_orig)/180*math.pi) + float3(0,1,0) * dist * math.sin((ang_true_pos_to_true_orig)/180*math.pi)
 
@@ -785,23 +1011,19 @@ class CalibManager:
     print(new_orig)
     await self.set_part_csy(new_orig, new_euler_angles)
 
-    # fid = self.feature_ids['L_bracket_back_face']
-    # L_bracket_back_face = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
-    # L_bracket_back_face_line = self.add_feature('L_bracket_back_face_line')
-    # for pt in L_bracket_back_face.points():
-    #   orig_to_pt = pt - top_plane_orig
-    #   dist = np.dot(orig_to_pt, top_plane_norm)
-    #   proj_pt = pt - dist * top_plane_norm
-    #   L_bracket_back_face_line.addPoint(*proj_pt)
+    z_min_limit_ini = float(ini.get_parameter(self.ini_data, "JOINT_2", "MIN_LIMIT")["values"]["value"])
+    if abs(z_min_limit_ini - Z_MIN_LIMIT_V2_10_INCHES) < 0.0001:
+      self.model = "V2-10"
+      waypoints['z_home'] = waypoints['z_home_10']
+      self.machine_props = V2_10_PROPS
+    elif abs(z_min_limit_ini - Z_MIN_LIMIT_V2_50_INCHES) < 0.0001:
+      self.model = "V2-50"
+      waypoints['z_home'] = waypoints['z_home_50']
+      self.machine_props = V2_50_PROPS
+    else:
+      return err_msg("CMM calibration halting, Z MIN_LIMIT abnormal, doesn't correspond to known model of V2. Z MIN_LIMIT: %s" % z_min_limit_ini)
 
-    # fid = self.feature_ids['L_bracket_right_face']
-    # L_bracket_right_face = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
-    # L_bracket_right_face_line = self.add_feature('L_bracket_right_face_line')
-    # for pt in L_bracket_right_face.points():
-    #   orig_to_pt = pt - top_plane_orig
-    #   dist = np.dot(orig_to_pt, top_plane_norm)
-    #   proj_pt = pt - dist * top_plane_norm
-    #   L_bracket_right_face_line.addPoint(*proj_pt)
+    return True
 
 
   async def find_b_cor(self):
@@ -893,7 +1115,8 @@ class CalibManager:
 
     #project the side lines to the top plane
 
-  async def find_top_plane(self, y_pos_v2):
+
+  async def probe_top_plane(self, y_pos_v2):
     try:
       orig = waypoints['b_rot_cent_approx'] + float3(0,0,(-y_pos_v2 - 63.5))
       await self.client.GoTo("Tool.Alignment(0,0,1)").complete()
@@ -922,10 +1145,12 @@ class CalibManager:
       ptMeas = await self.client.PtMeas("%s,IJK(0,0,1)" % ((orig + float3(25,-5,0)).ToXYZString())).complete()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       fixture_top_face.addPoint(*pt)
+      return True
     except Exception as ex:
       print("exception %s" % str(ex))
       raise ex
       # await self.client.disconnect()
+
 
   async def probe_x(self, x_pos_v2, z_pos_v2):
     '''
@@ -989,6 +1214,7 @@ class CalibManager:
       print("exception %s" % str(ex))
       raise ex
       # await self.client.disconnect()
+
 
   async def probe_z(self, x_pos_v2, z_pos_v2):
     '''
@@ -1059,7 +1285,7 @@ class CalibManager:
       feature_z_pos.addPoint(*pt) 
 
       await self.client.GoTo((orig + float3(0,0,50)).ToXYZString()).complete()
-      return False
+      return True
     except Exception as ex:
       print("exception %s" % str(ex))
       raise ex
@@ -1136,10 +1362,12 @@ class CalibManager:
       # await self.client.GoTo("Tool.A(%s),Tool.B(%s)" % (retract_a_angle_deg, retract_b_angle_deg)).complete()
       await self.client.GoTo((retract_pos).ToXYZString()).complete()
 
-      return None
+      return True
     except Exception as ex:
-      print("exception %s" % str(ex))
-      raise ex
+      msg = "Exception in PROBE_A %s" % str(ex)
+      logger.debug(msg)
+      return err_msg(msg)
+      # raise ex
       # await self.client.disconnect()
 
 
@@ -1209,7 +1437,7 @@ class CalibManager:
 
       # await self.client.GoTo("Z(%s)" % (orig.z + 15)).ack()
 
-      return False
+      return True
     except Exception as ex:
       print("exception %s" % str(ex))
       raise ex
@@ -1327,7 +1555,7 @@ class CalibManager:
 
 
   
-  async def setup_cnc_coord_sys(self):
+  async def setup_cnc_csy(self):
     '''
     define CNC coord sys from TOP_PLANE and Z_VEC
     B results
@@ -1408,14 +1636,14 @@ class CalibManager:
       self.y_norm = y_norm
       self.z_norm = z_norm
       self.cmm_to_cnc_mat = m2p
+      return True
     except Exception as e:
       print(e)
       return e
 
 
   async def write_results(self):
-    print('async')
-    self.write_results_sync()
+    return self.write_results_sync()
 
 
   def write_results_sync(self):
@@ -1543,7 +1771,7 @@ class CalibManager:
 
       b_home_err = float(self.last_find_b_proj_name[7:-5])
       b_home_offset_ini = float(ini.get_parameter(self.ini_data, "JOINT_4", "HOME_OFFSET")["values"]["value"])
-      b_home_offset_true = b_home_offset_ini + b_home_err
+      b_home_offset_true = b_home_offset_ini - b_home_err
       offsets['b'] = b_home_offset_true
 
       feat_b_circle = self.add_feature('b_circle')
@@ -1572,7 +1800,7 @@ class CalibManager:
       # vec_b0_projected_translated = np.matmul(m2p,np.append(b_0_vec,0))
       # vec_b0_2d = np.array([vec_b0_projected_translated[0],vec_b0_projected_translated[2]])
 
-      with open('/sysroot/home/pocketnc/results/b.comp', 'w') as f:
+      with open(bCompFileName, 'w') as f:
         for idx, b_probe_feat_name in enumerate(self.b_probes):
           print(b_probe_feat_name)
           fid = self.feature_ids['proj_' + b_probe_feat_name]
@@ -1627,7 +1855,7 @@ class CalibManager:
       print('a_home_err')
       print(a_home_err)
       a_home_offset_ini = float(ini.get_parameter(self.ini_data, "JOINT_3", "HOME_OFFSET")["values"]["value"])
-      a_home_offset_true = a_home_offset_ini + a_home_err
+      a_home_offset_true = a_home_offset_ini - a_home_err
       offsets['a'] = a_home_offset_true
       
       feat_a_circle = self.add_feature('a_circle')
@@ -1655,7 +1883,7 @@ class CalibManager:
       # vec_a0_2d = np.array([vec_a0_projected_translated[1],vec_a0_projected_translated[2]])
 
       print('calculating A positions')
-      with open('/sysroot/home/pocketnc/results/a.comp', 'w') as f:
+      with open(aCompFileName, 'w') as f:
         for idx, a_probe_feat_name in enumerate(self.a_probes):
           print(a_probe_feat_name)
           fid = self.feature_ids['proj_' + a_probe_feat_name]
@@ -1797,38 +2025,52 @@ class CalibManager:
     Writing CalibrationOverlay
     '''
     try:
-      new_ini_data = copy.deepcopy(self.ini_data)
+      new_overlay_data = copy.deepcopy(self.overlay_data)
       with open(newCalFilename, 'w') as f:
         if "x" in offsets:
             print("Writing %0.6f to X HOME_OFFSET" % offsets["x"])
-            ini.set_parameter(new_ini_data, "JOINT_0", "HOME_OFFSET", offsets["x"])
+            ini.set_parameter(new_overlay_data, "JOINT_0", "HOME_OFFSET", offsets["x"])
 
         if "y" in offsets:
             print("Writing %0.6f to Y HOME_OFFSET" % offsets["y"])
-            ini.set_parameter(new_ini_data, "JOINT_1", "HOME_OFFSET", offsets["y"])
+            ini.set_parameter(new_overlay_data, "JOINT_1", "HOME_OFFSET", offsets["y"])
 
         if "a" in offsets:
             print("Writing %0.6f to A HOME_OFFSET" % offsets["a"])
-            ini.set_parameter(new_ini_data, "JOINT_3", "HOME_OFFSET", offsets["a"])
+            ini.set_parameter(new_overlay_data, "JOINT_3", "HOME_OFFSET", offsets["a"])
 
         if "b" in offsets:
             print("Writing %0.6f to B HOME_OFFSET" % offsets["b"])
-            ini.set_parameter(new_ini_data, "JOINT_4", "HOME_OFFSET", offsets["b"])
+            ini.set_parameter(new_overlay_data, "JOINT_4", "HOME_OFFSET", offsets["b"])
 
         if "bTable" in offsets:
             print("Writing %0.6f to PROBE_B_TABLE_OFFSET" % offsets["bTable"])
-            ini.set_parameter(new_ini_data, "TOOL_PROBE", "PROBE_B_TABLE_OFFSET", offsets["bTable"])
+            ini.set_parameter(new_overlay_data, "TOOL_PROBE", "PROBE_B_TABLE_OFFSET", offsets["bTable"])
 
         if "sensor123" in offsets:
             print("Writing %0.6f to PROBE_SENSOR_123_OFFSET" % offsets["sensor123"])
-            ini.set_parameter(new_ini_data, "TOOL_PROBE", "PROBE_SENSOR_123_OFFSET", offsets["sensor123"])
-        ini.write_ini_data(new_ini_data, newCalFilename)
+            ini.set_parameter(new_overlay_data, "TOOL_PROBE", "PROBE_SENSOR_123_OFFSET", offsets["sensor123"])
+        ini.write_ini_data(new_overlay_data, newCalFilename)
 
     except Exception as e:
       print(e)
       return e
 
-    return False
+    return True
+
+  async def disconnect_from_cmm(self):
+    '''
+    End
+    '''
+    if self.client is None or self.client.stream is None:
+      print("already disconnected")
+      return True
+
+    try:
+      await self.client.EndSession().send()
+      await self.client.disconnect()
+    except CmmException as ex:
+      print("CmmExceptions %s" % ex)
 
   async def end(self):
     '''
