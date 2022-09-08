@@ -363,6 +363,9 @@ B_LINE_LENGTH = 35
 Z_MIN_LIMIT_V2_10_INCHES = -3.451
 Z_MIN_LIMIT_V2_50_INCHES = -3.541
 
+Y_MAX = 64.5
+Y_MIN = -63.5
+Y_STEP = -25
 Z_MIN = -26
 Z_STEP = -25
 B_STEP = 5
@@ -399,7 +402,7 @@ OFFSET_B_POS_REL_Z = 135
 OFFSET_B_NEG_REL_Z = 225
 OFFSET_A_REL_Z = 90
 
-PROBING_POS_Y = -63.499
+PROBING_POS_Y = -63
 
 FEAT_SPINDLE_POS_SPHERE = 'spindle_pos_sphere'
 
@@ -524,6 +527,9 @@ class CalibManager:
 
     self.a_probes = []
     self.b_probes = []
+    self.x_probes = []
+    self.y_probes = []
+    self.z_probes = []
     self.a_verify_probes = []
     self.b_verify_probes = []
     self.a_home_values = []
@@ -678,7 +684,9 @@ class CalibManager:
         self.fitted_features[feat_name][datum_name] = save_data['fitted_features'][feat_name][datum_name]
     for prop_name in save_data['state'].keys():
       setattr(self, prop_name, save_data['state'][prop_name])
-    self.zmq_report('STEP_COMPLETE', stage=stage)
+    self.stages_completed[str(stage)[len("Stages."):]] = True
+    self.zmq_report('STEP_COMPLETE', stage_completed=True, stage=stage)
+
 
 
   def save_features(self):
@@ -963,6 +971,15 @@ class CalibManager:
         elif stage_for_step is Stages.CHARACTERIZE_B:
           self.stage_state.setdefault(Stages.CHARACTERIZE_B, {})
           self.stage_state[Stages.CHARACTERIZE_B]['b_probes'] = self.b_probes
+        elif stage_for_step is Stages.CHARACTERIZE_X:
+          self.stage_state.setdefault(Stages.CHARACTERIZE_X, {})
+          self.stage_state[Stages.CHARACTERIZE_X]['x_probes'] = self.x_probes
+        elif stage_for_step is Stages.CHARACTERIZE_Y:
+          self.stage_state.setdefault(Stages.CHARACTERIZE_Y, {})
+          self.stage_state[Stages.CHARACTERIZE_Y]['y_probes'] = self.y_probes
+        elif stage_for_step is Stages.CHARACTERIZE_Z:
+          self.stage_state.setdefault(Stages.CHARACTERIZE_Z, {})
+          self.stage_state[Stages.CHARACTERIZE_Z]['z_probes'] = self.z_probes
         elif stage_for_step is Stages.VERIFY_A:
           self.stage_state.setdefault(Stages.VERIFY_A, {})
           self.stage_state[Stages.VERIFY_A]['a_verify_probes'] = self.a_verify_probes
@@ -1455,7 +1472,7 @@ class CalibManager:
       await self.client.GoTo((orig + float3(0,0,100)).ToXYZString()).complete()
       await self.client.GoTo((orig + float3(0,0,10)).ToXYZString()).complete()
 
-      fixture_top_face = self.add_feature('fixture_top_face')
+      fixture_top_face = self.add_feature('fixture_top_face', Stages.PROBE_TOP_PLANE)
 
       ptMeas = await self.client.PtMeas("%s,IJK(0,0,1)" % ((orig).ToXYZString())).complete()
       pt = float3.FromXYZString(ptMeas.data_list[0])
@@ -1481,6 +1498,72 @@ class CalibManager:
       print("exception %s" % str(ex))
       raise ex
       # await self.client.disconnect()
+
+  async def probe_fixture_ball(self, y_pos_v2, feature):
+    try:
+      orig = waypoints['fixture_ball'] + float3(0,0,-(y_pos_v2 - 63.5))
+      contact_radius = (FIXTURE_BALL_DIA+PROBE_DIA)/2
+      a_angle_probe_contact = math.atan2(contact_radius,TOOL_3_LENGTH)*180/math.pi
+
+      await self.client.GoTo("Tool.Alignment(0,0,1,1,0,0)").complete()
+      await self.client.GoTo((orig + float3(0,0,25)).ToXYZString()).complete()
+      getCurrPosCmd = await self.client.Get("X(),Y(),Z()").complete()
+      currPos = readPointData(getCurrPosCmd.data_list[0])
+
+      #place tip pos +Y from target
+      await self.client.GoTo("Tool.A(%s),Tool.B(90)" % (a_angle_probe_contact+5)).complete()
+      await self.client.GoTo("Z(%s)" % (currPos.z - 25)).complete()
+      await self.client.SetProp("Tool.PtMeasPar.HeadTouch(1)").complete()
+      await self.client.SetProp("Tool.PtMeasPar.Search(6)").complete()
+
+      # probe in -Y dir
+      ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % ((orig + float3(0,contact_radius,0)).ToXYZString())).complete()
+      pt = float3.FromXYZString(ptMeas.data_list[0])
+      feature.addPoint(*pt)
+
+      # move to -X pos, probe in +X dir
+      await self.client.GoTo("Tool.A(%s),Tool.B(180)" % (a_angle_probe_contact+5)).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(-1,0,0)" % ((orig + float3(-contact_radius,0,0)).ToXYZString())).complete()
+      pt = float3.FromXYZString(ptMeas.data_list[0])
+      feature.addPoint(*pt)
+
+      # move to -Y pos, probe in +Y dir
+      await self.client.GoTo("Tool.A(%s),Tool.B(270)" % (a_angle_probe_contact+5)).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,-1,0)" % ((orig + float3(0,-contact_radius,0)).ToXYZString())).complete()
+      pt = float3.FromXYZString(ptMeas.data_list[0])
+      feature.addPoint(*pt) 
+
+      #rise 2mm and probe another 3 points
+      measPos2 = orig + float3(0,0,2)
+      getCurrPosCmd = await self.client.Get("X(),Y(),Z()").complete()
+      currPos = readPointData(getCurrPosCmd.data_list[0])
+      # await self.client.GoTo((currPos + float3(0,0,+2)).ToXYZString()).complete()
+      await self.client.GoTo("Tool.A(%s),Tool.B(270)" % (a_angle_probe_contact+5)).complete()
+      await self.client.GoTo("Z(%s)" % (currPos.z + 2)).complete()
+
+      # probe in +Y dir
+      await self.client.GoTo("Tool.A(%s),Tool.B(270)" % (a_angle_probe_contact+5)).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,-1,0)" % ((measPos2 + float3(0,-contact_radius,0)).ToXYZString())).complete()
+      pt = float3.FromXYZString(ptMeas.data_list[0])
+      feature.addPoint(*pt)
+
+      # move to -X pos, probe in +X dir
+      await self.client.GoTo("Tool.A(%s),Tool.B(180)" % (a_angle_probe_contact+5)).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(-1,0,0)" % ((measPos2 + float3(-contact_radius,0,0)).ToXYZString())).complete()
+      pt = float3.FromXYZString(ptMeas.data_list[0])
+      feature.addPoint(*pt) 
+
+      # move to +Y pos, probe in -Y dir
+      await self.client.GoTo("Tool.A(%s),Tool.B(90)" % (a_angle_probe_contact+5)).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % ((measPos2 + float3(0,contact_radius,0)).ToXYZString())).complete()
+      pt = float3.FromXYZString(ptMeas.data_list[0])
+      feature.addPoint(*pt) 
+
+      await self.client.GoTo((orig + float3(0,0,50)).ToXYZString()).complete()
+      return True
+    except Exception as ex:
+      print("exception %s" % str(ex))
+      raise ex
 
 
   async def probe_spindle_tip(self, x_pos_v2, z_pos_v2, feature):
@@ -1558,8 +1641,9 @@ class CalibManager:
 
 
   async def probe_x(self, x_pos_v2, z_pos_v2):
-    feature_name = "x_%+.4f" % x_pos_v2
-    feature_x_pos = self.add_feature(feature_name, Stages.CHARACTERIZE_X)
+    feat_name = "x_%+.4f" % x_pos_v2
+    self.x_probes.append(feat_name)
+    feature_x_pos = self.add_feature(feat_name, Stages.CHARACTERIZE_X)
     try:
       await self.probe_spindle_tip(x_pos_v2, z_pos_v2, feature_x_pos)
       return True
@@ -1594,7 +1678,6 @@ class CalibManager:
     avg_home_x_pos = np.mean(home_x_positions, axis=0)
     max_dist = 0
     for idx, home_x_pos in enumerate(home_x_positions):
-      print(home_x_pos)
       other_positions = home_x_positions[:idx] + home_x_positions[idx+1:]
       for pos in other_positions:
         dist = np.linalg.norm( home_x_pos - pos )
@@ -1607,72 +1690,14 @@ class CalibManager:
       return True
 
   async def probe_y(self, y_pos_v2):
+    feat_name = "y_%+.4f" % y_pos_v2
+    self.y_probes.append(feat_name)
+    feature = self.add_feature(feat_name, Stages.CHARACTERIZE_Y)
     try:
-      feature_name = "y_%+.4f" % y_pos_v2
-      feature = self.add_feature(feature_name, Stages.CHARACTERIZE_Y)
-
-      orig = waypoints['fixture_ball'] + float3(0,0,-(y_pos_v2 - 63.5))
-      contact_radius = (FIXTURE_BALL_DIA+PROBE_DIA)/2
-      a_angle_probe_contact = math.atan2(contact_radius,TOOL_3_LENGTH)*180/math.pi
-
-      await self.client.GoTo("Tool.Alignment(0,0,1,1,0,0)").complete()
-      await self.client.GoTo((orig + float3(0,0,25)).ToXYZString()).complete()
-      getCurrPosCmd = await self.client.Get("X(),Y(),Z()").complete()
-      currPos = readPointData(getCurrPosCmd.data_list[0])
-
-      #place tip pos +Y from target
-      await self.client.GoTo("Tool.A(%s),Tool.B(90)" % (a_angle_probe_contact+5)).complete()
-      await self.client.GoTo("Z(%s)" % (currPos.z - 25)).complete()
-      await self.client.SetProp("Tool.PtMeasPar.HeadTouch(1)").complete()
-      await self.client.SetProp("Tool.PtMeasPar.Search(6)").complete()
-
-      # probe in -Y dir
-      ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % ((orig + float3(0,contact_radius,0)).ToXYZString())).complete()
-      pt = float3.FromXYZString(ptMeas.data_list[0])
-      feature.addPoint(*pt)
-
-      # move to -X pos, probe in +X dir
-      await self.client.GoTo("Tool.A(%s),Tool.B(180)" % (a_angle_probe_contact+5)).complete()
-      ptMeas = await self.client.PtMeas("%s,IJK(-1,0,0)" % ((orig + float3(-contact_radius,0,0)).ToXYZString())).complete()
-      pt = float3.FromXYZString(ptMeas.data_list[0])
-      feature.addPoint(*pt)
-
-      # move to -Y pos, probe in +Y dir
-      await self.client.GoTo("Tool.A(%s),Tool.B(270)" % (a_angle_probe_contact+5)).complete()
-      ptMeas = await self.client.PtMeas("%s,IJK(0,-1,0)" % ((orig + float3(0,-contact_radius,0)).ToXYZString())).complete()
-      pt = float3.FromXYZString(ptMeas.data_list[0])
-      feature.addPoint(*pt) 
-
-      #rise 2mm and probe another 3 points
-      measPos2 = orig + float3(0,0,2)
-      getCurrPosCmd = await self.client.Get("X(),Y(),Z()").complete()
-      currPos = readPointData(getCurrPosCmd.data_list[0])
-      # await self.client.GoTo((currPos + float3(0,0,+2)).ToXYZString()).complete()
-      await self.client.GoTo("Tool.A(%s),Tool.B(270)" % (a_angle_probe_contact+5)).complete()
-      await self.client.GoTo("Z(%s)" % (currPos.z + 2)).complete()
-
-      # probe in +Y dir
-      await self.client.GoTo("Tool.A(%s),Tool.B(270)" % (a_angle_probe_contact+5)).complete()
-      ptMeas = await self.client.PtMeas("%s,IJK(0,-1,0)" % ((measPos2 + float3(0,-contact_radius,0)).ToXYZString())).complete()
-      pt = float3.FromXYZString(ptMeas.data_list[0])
-      feature.addPoint(*pt)
-
-      # move to -X pos, probe in +X dir
-      await self.client.GoTo("Tool.A(%s),Tool.B(180)" % (a_angle_probe_contact+5)).complete()
-      ptMeas = await self.client.PtMeas("%s,IJK(-1,0,0)" % ((measPos2 + float3(-contact_radius,0,0)).ToXYZString())).complete()
-      pt = float3.FromXYZString(ptMeas.data_list[0])
-      feature.addPoint(*pt) 
-
-      # move to +Y pos, probe in -Y dir
-      await self.client.GoTo("Tool.A(%s),Tool.B(90)" % (a_angle_probe_contact+5)).complete()
-      ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % ((measPos2 + float3(0,contact_radius,0)).ToXYZString())).complete()
-      pt = float3.FromXYZString(ptMeas.data_list[0])
-      feature.addPoint(*pt) 
-
-      await self.client.GoTo((orig + float3(0,0,50)).ToXYZString()).complete()
+      await self.probe_fixture_ball(y_pos_v2, feature)
       return True
     except Exception as ex:
-      print("exception %s" % str(ex))
+      logger.error("exception %s" % str(ex))
       raise ex
 
 
@@ -1685,7 +1710,7 @@ class CalibManager:
     self.y_home_probes.append(feat_name)
     feat_y_home = self.add_feature(feat_name, Stages.CHARACTERIZE_Y)
     try:
-      await self.probe_spindle_tip(y_pos_v2, feat_y_home)
+      await self.probe_fixture_ball(y_pos_v2, feat_y_home)
       return True
     except Exception as ex:
       print("exception %s" % str(ex))
@@ -1696,7 +1721,7 @@ class CalibManager:
     for feat_name in self.y_home_probes:
       fid = self.feature_ids[feat_name]
       feat = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
-      (pos, rad) = feat.sphere()
+      (rad, pos) = feat.sphere()
       if abs(rad*2 - (FIXTURE_BALL_DIA+PROBE_DIA)) > 0.1:
         raise CalibException("Deviation in best-fit fixture sphere. Diameter %s" % (radius*2))
       home_positions.append(pos)
@@ -1708,7 +1733,7 @@ class CalibManager:
         dist = np.linalg.norm( home_pos - pos )
         if dist > max_dist:
           max_dist = dist
-    if max_dist > .001:
+    if max_dist > LINEAR_HOMING_REPEATABILITY:
       raise CalibException("FAIL: Y homing variation exceeded spec: %s" % max_dist)
     else:
       return True
@@ -1722,9 +1747,9 @@ class CalibManager:
     '''
     # orig = waypoints['z_home'] + float3(z_pos_v2,x_pos_v2 - 63.5,0)
     # orig = self.fitted_features[FEAT_SPINDLE_POS_SPHERE]['pos'] + float3(z_pos_v2,x_pos_v2 - 63.5,0)
-
-    feature_name = "z_%+.4f" % z_pos_v2
-    feature_z_pos = self.add_feature(feature_name, Stages.CHARACTERIZE_Z)
+    feat_name = "z_%+.4f" % z_pos_v2
+    self.z_probes.append(feat_name)
+    feature_z_pos = self.add_feature(feat_name, Stages.CHARACTERIZE_Z)
     try:
       await self.probe_spindle_tip(x_pos_v2, z_pos_v2, feature_z_pos)
       return True
@@ -1752,7 +1777,7 @@ class CalibManager:
     for feat_name in self.z_home_probes:
       fid = self.feature_ids[feat_name]
       feat = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
-      (pos, rad) = feat.sphere()
+      (rad, pos) = feat.sphere()
       if abs(rad*2 - (FIXTURE_BALL_DIA+PROBE_DIA)) > 0.1:
         raise CalibException("Deviation in best-fit fixture sphere. Diameter %s" % (radius*2))
       home_positions.append(pos)
@@ -1764,7 +1789,7 @@ class CalibManager:
         dist = np.linalg.norm( home_pos - pos )
         if dist > max_dist:
           max_dist = dist
-    if max_dist > .001:
+    if max_dist > LINEAR_HOMING_REPEATABILITY:
       raise CalibException("FAIL: Z homing variation exceeded spec: %s" % max_dist)
     else:
       return True
@@ -1831,7 +1856,7 @@ class CalibManager:
         pass
 
       end_pos = start_pos + drive_vec * B_LINE_LENGTH
-      retract_pos = end_pos + face_norm * 10
+      retract_pos = end_pos + face_norm * 20
 
       # face_norm_xz_angle_rad = math.atan2(face_norm.x, face_norm.z)
       # retract_a_frac = math.cos(face_norm_xz_angle_rad)
@@ -1857,7 +1882,7 @@ class CalibManager:
     Find the A axis position after homing
     '''
     try:
-      await self.find_pos_a(probeline_name, y_pos_v2, b_pos_v2, True)
+      await self.find_pos_a(y_pos_v2, a_pos_v2, is_homing_check=True)
       return True
     except Exception as ex:
       logger.error("exception %s" % str(ex))
@@ -1867,7 +1892,7 @@ class CalibManager:
     min_a = min(self.a_home_values)
     max_a = max(self.a_home_values)
     diff = max_a - min_a
-    if diff > .04:
+    if diff > ANGULAR_HOMING_REPEATABILITY:
       raise CalibException("FAIL: A homing variation exceeded spec: %s" % diff)
     else:
       return True
@@ -1956,7 +1981,7 @@ class CalibManager:
     Find the B axis position after homing
     '''
     try:
-      await self.find_pos_b(probeline_name, y_pos_v2, b_pos_v2, True)
+      await self.find_pos_b(y_pos_v2, b_pos_v2, is_homing_check=True)
       return True
     except Exception as ex:
       logger.error("exception %s" % str(ex))
@@ -1966,8 +1991,8 @@ class CalibManager:
     min_b = min(self.b_home_values)
     max_b = max(self.b_home_values)
     diff = max_b - min_b
-    if diff > .04:
-      raise CalibException("FAIL: x homing variation exceeded spec: %s" % diff)
+    if diff > ANGULAR_HOMING_REPEATABILITY:
+      raise CalibException("FAIL: B homing variation exceeded spec: %s" % diff)
     else:
       return True
 
@@ -1983,6 +2008,7 @@ class CalibManager:
         a_home_count = len(self.a_home_probes)
         probeline_name = "home_a_%d" % (a_home_count + 1)
         self.a_home_probes.append(probeline_name)
+        self.add_state('a_home_probes', self.a_home_probes, Stages.CHARACTERIZE_A)
       else:
         probeline_name = "find_a_%+.6f" % a_nominal
       await self.probe_a(probeline_name, y_nominal, a_nominal)
@@ -2008,25 +2034,31 @@ class CalibManager:
         a_line_proj.addPoint(proj_pt[0], proj_pt[1], proj_pt[2])
       
       a_line_proj_line = a_line_proj.line()
-      self.fitted_features[proj_probeline_name] = {'pt': a_line_proj_line[0], 'dir': a_line_proj_line[1]}
-      a_line_translated = np.matmul(self.cmm2cnc, np.append(a_line_proj_line[1], 0))
-      logger.debug('a_line_translated')
-      logger.debug(a_line_translated)
+      a_proj_line_dir = a_line_proj_line[1]
+      #a_line_proj_line should be +Z in PartCsy
+      if a_proj_line_dir[2] < 0:
+        a_proj_line_dir = -1*a_proj_line_dir
+
+      self.fitted_features[proj_probeline_name] = {'pt': a_line_proj_line[0], 'dir': a_proj_line_dir}
+      a_line_translated_dir = np.matmul(self.cmm2cnc, np.append(a_proj_line_dir, 0))
+      logger.debug('a_line_translated_dir')
+      logger.debug(a_line_translated_dir)
       # z_norm_2d_xz = [self.z_norm[0], self.z_norm[2]]
       #don't use z_norm, that is in the PartCsy. We are in the ideal CNC Csy
-      a_dir_2d_yz = [a_line_translated[1], a_line_translated[2]]
+      a_dir_2d_yz = [a_line_translated_dir[1], a_line_translated_dir[2]]
       # a_pos_rel_z = angle_between_ccw_2d(z_norm_2d_xz, a_dir_2d_yz)
       
-      if a_line_translated[1] >= 0:
-        a_pos_rel_z = angle_between_ccw_2d([1,0], a_dir_2d_yz)
-      else:
-        a_pos_rel_z = angle_between_ccw_2d([-1,0], a_dir_2d_yz)
+      a_pos_rel_z = -1*angle_between_ccw_2d([-1,0], a_dir_2d_yz)
+      # if a_line_translated_dir[1] >= 0:
+      # else:
+      #   a_pos_rel_z = angle_between_ccw_2d([-1,0], a_dir_2d_yz)
       
       a_pos = a_pos_rel_z
 
       logger.debug("found A pos %s" % a_pos)
       if is_homing_check:
         self.a_home_values.append(a_pos)
+        self.add_state('a_home_values', self.a_home_values, Stages.CHARACTERIZE_A)
       else:
         self.add_state('last_find_a_proj_name', proj_probeline_name, Stages.CHARACTERIZE_A)
       return a_pos
@@ -2048,6 +2080,7 @@ class CalibManager:
         b_home_count = len(self.b_home_probes)
         probeline_name = "home_b_%d" % (b_home_count + 1)
         self.b_home_probes.append(probeline_name)
+        self.add_state('b_home_probes', self.b_home_probes, Stages.CHARACTERIZE_B)
       else:
         probeline_name = "find_b_%+.6f" % b_nominal
       await self.probe_b(probeline_name, y_nominal, b_nominal)
@@ -2085,9 +2118,11 @@ class CalibManager:
         b_pos = OFFSET_B_POS_REL_Z - b_pos_rel_z
       else:
         b_pos = b_pos_rel_z - OFFSET_B_POS_REL_Z
+
       logger.debug("found B pos %s" % b_pos)
       if is_homing_check:
         self.b_home_values.append(b_pos)
+        self.add_state('b_home_values', self.b_home_values, Stages.CHARACTERIZE_B)
       else:
         self.add_state('last_find_b_proj_name', proj_probeline_name, Stages.CHARACTERIZE_B)
       return b_pos
@@ -2108,7 +2143,7 @@ class CalibManager:
       for each line
         find angle compared to 0, compare to nominal
     '''
-    dir_z_partcsy = None
+    z_line_partcsy_dir = None
     z_vec_proj = None 
     z_vec_cross_top_plane_norm = None
     rot_mat = None
@@ -2131,8 +2166,9 @@ class CalibManager:
     try:
       z_line = self.add_feature('z_line', Stages.SETUP_CNC_CSY)
       z_line_proj = self.add_feature('z_line_proj', Stages.SETUP_CNC_CSY)
-      for i in range(0,Z_MIN,Z_STEP):
-        fid = self.feature_ids['z_%+.4f' % i]
+      for z_probe_feat_name in self.z_probes:
+        # fid = self.feature_ids['z_%+.4f' % i]
+        fid = self.feature_ids[z_probe_feat_name]
         z_pos_feat = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
         z_pos_sphere = z_pos_feat.sphere()
         z_pos = z_pos_sphere[1]
@@ -2151,9 +2187,33 @@ class CalibManager:
       print(e)
       return e
 
+
+    '''
+    Use Y positions to define a line
+    '''
+    try:
+      y_line = self.add_feature('y_line', Stages.SETUP_CNC_CSY)
+      y_line_proj = self.add_feature('y_line_proj', Stages.SETUP_CNC_CSY)
+      # for i in range(Y_MAX,Y_MIN,Y_STEP):
+      for y_probe_feat_name in self.y_probes:
+        # fid = self.feature_ids['y_%+.4f' % i]
+        fid = self.feature_ids[y_probe_feat_name]
+        y_pos_feat = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
+        y_pos_sphere = y_pos_feat.sphere()
+        y_pos = y_pos_sphere[1]
+        y_line.addPoint(*y_pos)
+
+      (y_point_real, y_norm_real) = y_line.line()
+      #y-probing steps Y in negative dir
+      y_norm_real = y_norm_real
+      self.add_fitted_feature('y_line_real', {'pt': y_point_real, 'norm': y_norm_real}, Stages.SETUP_CNC_CSY)
+    except Exception as e:
+      print(e)
+      return e
+
     #use results to create coord sys and tranformation matrices
     try:
-      y_norm = top_plane_norm
+      y_norm = y_norm_real
       x_norm = np.cross(y_norm, z_norm_real)
       pocket_yz_plane_norm = x_norm
       z_norm = np.cross(x_norm,y_norm)
@@ -2194,12 +2254,12 @@ class CalibManager:
         find angle compared to 0, compare to nominal
     '''
     offsets = {}
-    dir_z_partcsy = None
+    z_line_partcsy_dir = None
     z_vec_proj = None 
     z_vec_cross_top_plane_norm = None
     rot_mat = None
     pocket_yz_plane_norm = None
-    
+
     fixture_top_face = self.metrologyManager.getActiveFeatureSet().getFeature( self.feature_ids['fixture_top_face'] )
     plane_fixture_top_face = fixture_top_face.plane()
     top_plane_pt = plane_fixture_top_face[0]
@@ -2207,20 +2267,16 @@ class CalibManager:
     #top_plane_norm should be pointing up
     if top_plane_norm[2] < 0:
       top_plane_norm = -1*top_plane_norm
-    print('top_plane_norm')
-    print(top_plane_norm)
 
     '''
     Z results
     Define a line along the z points
     '''
     try:
-      z_line = self.add_feature('z_line')
-      z_line_proj = self.add_feature('z_line_proj')
+      z_line = self.add_feature('z_line', Stages.WRITE_RESULTS)
+      z_line_proj = self.add_feature('z_line_proj', Stages.WRITE_RESULTS)
       for i in range(0,Z_MIN,Z_STEP):
-        print(i)
         fid = self.feature_ids['z_%+.4f' % i]
-        print('fid is %s' % fid)
         z_pos_feat = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
         z_pos_sphere = z_pos_feat.sphere()
         z_pos = z_pos_sphere[1]
@@ -2231,25 +2287,23 @@ class CalibManager:
         proj_pt = z_pos - dist * top_plane_norm
         z_line_proj.addPoint(*proj_pt)
 
-      print(z_line_proj)
-      dir_z_partcsy = -1*z_line.line()[1]
-      print(dir_z_partcsy)
-      z_vec_proj = z_line_proj.line()[1]
-      z_vec_cross_top_plane_norm = np.cross(z_vec_proj,top_plane_norm)
-      print('z_vec_cross_top_plane_norm')
-      print(z_vec_cross_top_plane_norm)
-      affine_mat_construct = np.array([top_plane_pt,z_vec_proj,z_vec_cross_top_plane_norm,top_plane_norm])
-      print('affine_mat_construct')
-      print(affine_mat_construct)
-      affine_mat = np.vstack((affine_mat_construct.transpose(),[1,1,1,1]))
-      print('affine_mat')
-      print(affine_mat)
-      affine_mat_inv = np.linalg.inv(affine_mat)
-      print('affine_mat_inv')
-      print(affine_mat_inv)
-      rot_mat = np.matmul(D_MAT, affine_mat_inv)
-      print('rot_mat')
-      print(rot_mat)
+      z_line_partcsy_dir = -1*z_line.line()[1]
+      z_line_proj_dir = z_line_proj.line()[1]
+      z_vec_cross_top_plane_norm = np.cross(z_line_proj_dir,top_plane_norm)
+      # print('z_vec_cross_top_plane_norm')
+      # print(z_vec_cross_top_plane_norm)
+      # affine_mat_construct = np.array([top_plane_pt,z_line_proj_dir,z_vec_cross_top_plane_norm,top_plane_norm])
+      # print('affine_mat_construct')
+      # print(affine_mat_construct)
+      # affine_mat = np.vstack((affine_mat_construct.transpose(),[1,1,1,1]))
+      # print('affine_mat')
+      # print(affine_mat)
+      # affine_mat_inv = np.linalg.inv(affine_mat)
+      # print('affine_mat_inv')
+      # print(affine_mat_inv)
+      # rot_mat = np.matmul(D_MAT, affine_mat_inv)
+      # print('rot_mat')
+      # print(rot_mat)
 
     except Exception as e:
       print(e)
@@ -2260,7 +2314,7 @@ class CalibManager:
     '''
     try:
     #   y_norm = top_plane_norm
-    #   x_norm = np.cross(y_norm, dir_z_partcsy)
+    #   x_norm = np.cross(y_norm, z_line_partcsy_dir)
     #   pocket_yz_plane_norm = x_norm
     #   z_norm = np.cross(x_norm,y_norm)
     #   p2m_construct = np.array([x_norm,y_norm,z_norm,top_plane_pt])
@@ -2268,15 +2322,15 @@ class CalibManager:
     #   cmm2cnc = np.linalg.inv(p2m)
     #   #TODO use the plane defined by B-rotation instead of fixture top plane
     #   dir_b_norm_cnccsy = np.matmul(cmm2cnc,np.append(top_plane_norm,0))
-      dir_z_cnccsy = np.matmul(self.cmm2cnc,np.append(dir_z_partcsy,0))
+      z_line_cnccsy_dir = np.matmul(self.cmm2cnc,np.append(z_line_partcsy_dir,0))
     #   print("pocketnc 2 machine matrix")
     #   print(p2m)
     #   print("machine 2 pocketnc matrix")
     #   print(cmm2cnc)
     except Exception as e:
       print('Exception while constructing coordinate system')
-      print(e)
-      return e
+      logger.error(e)
+      raise e
 
     '''
     B results
@@ -2291,20 +2345,18 @@ class CalibManager:
     the center of rotation is at the centroid of these intersection positions
     '''
     try:
-
-
       b_home_err = float(self.last_find_b_proj_name[7:-5])
       b_home_offset_ini = float(ini.get_parameter(self.ini_data, "JOINT_4", "HOME_OFFSET")["values"]["value"])
       b_home_offset_true = b_home_offset_ini - b_home_err
       offsets['b'] = b_home_offset_true
 
-      feat_b_circle = self.add_feature('b_circle')
+      feat_b_circle = self.add_feature('b_circle', Stages.WRITE_RESULTS)
 
       print("b lines 3d")
       for b_probe_feat_name in self.b_probes:
         fid = self.feature_ids[b_probe_feat_name]
         b_line = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
-        b_line_proj = self.add_feature('proj_' + b_probe_feat_name)
+        b_line_proj = self.add_feature('proj_' + b_probe_feat_name, Stages.WRITE_RESULTS)
         for pt in b_line.points():
           plane_orig_to_pt = pt - top_plane_pt
           dist = np.dot(plane_orig_to_pt, self.y_norm)
@@ -2344,7 +2396,7 @@ class CalibManager:
         elif nominal_pos > 360:
           err = err + 360
         print(err)
-        comp = -1*err
+        comp = err
         b_err_table.append((nominal_pos, comp))
 
         #also find intersect position with next B-line
@@ -2386,13 +2438,13 @@ class CalibManager:
       a_home_offset_true = a_home_offset_ini - a_home_err
       offsets['a'] = a_home_offset_true
       
-      feat_a_circle = self.add_feature('a_circle')
+      feat_a_circle = self.add_feature('a_circle', Stages.WRITE_RESULTS)
 
       # project the a-angle lines to POCKET coord sys YZ plane
       for a_probe_feat_name in self.a_probes:
         fid = self.feature_ids[a_probe_feat_name]
         a_line = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
-        a_line_proj = self.add_feature('proj_' + a_probe_feat_name)
+        a_line_proj = self.add_feature('proj_' + a_probe_feat_name, Stages.WRITE_RESULTS)
         for pt in a_line.points():
           plane_orig_to_pt = pt - top_plane_pt
           dist = np.dot(plane_orig_to_pt, self.x_norm)
@@ -2411,21 +2463,48 @@ class CalibManager:
       # vec_a0_2d = np.array([vec_a0_projected_translated[1],vec_a0_projected_translated[2]])
 
       print('calculating A positions')
+      # char_a_nominal_positions = []
+      # for a_probe_feat_name in enumerate(self.a_probes):
+      #   nominal_pos = float(a_probe_feat_name[len('probe_a_'):])
+
       with open( os.path.join(RESULTS_DIR, 'a.comp'), 'w') as f:
         for idx, a_probe_feat_name in enumerate(self.a_probes):
           print(a_probe_feat_name)
           fid = self.feature_ids['proj_' + a_probe_feat_name]
           print('fid is %s' % fid)
-          proj_a_line = self.metrologyManager.getActiveFeatureSet().getFeature(fid).line()
-          proj_a_line_translated = np.matmul(self.cmm2cnc,np.append(proj_a_line[1],0))
-          vec_astep_2d = np.array([proj_a_line_translated[1],proj_a_line_translated[2]])
+          a_line_feat = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
+          proj_a_line = a_line_feat.line()
+          proj_a_line_dir = proj_a_line[1]
+          """make sure the best-fit line is in right direction
+          the probe_a routine collects points in a "decreasing radius" manner,
+          i.e. later points are closer to the center of rotation
+          The best-fit lines should point outwards
+          """
+          points = a_line_feat.points()
+          if points[0][2] > points[-1][2]:
+            #first point is higher than last, so line should be upwards to be away from center
+            if proj_a_line_dir[2] < 0:
+              proj_a_line_dir = -1 * proj_a_line_dir
+          else:
+            #first point is lower than last, so line should be downwards to be away from center
+            if proj_a_line_dir[2] > 0:
+              proj_a_line_dir = -1 * proj_a_line_dir
+
+          proj_a_line_dir_translated = np.matmul(self.cmm2cnc,np.append(proj_a_line_dir,0))
+          vec_astep_2d = np.array([proj_a_line_dir_translated[1],proj_a_line_dir_translated[2]])
           #find angle relative to Z
           # line_angle_rel_z = angle_between_ccw_2d(b_0_vec, proj_b_line[1])
           line_angle_rel_0 = angle_between_ccw_2d(vec_astep_2d, vec_true_a0_translated_2d)
           err = 0
           nominal_pos = float(a_probe_feat_name[len('probe_a_'):])
-          true_nominal_pos = nominal_pos - a_home_err
-          err = line_angle_rel_0 + nominal_pos
+          adjusted_nominal_pos = nominal_pos - a_home_err
+          if line_angle_rel_0 > 0:
+            # A-pos less than true zero
+            err = line_angle_rel_0 + adjusted_nominal_pos
+          else:
+            # positive valued A position
+            err = line_angle_rel_0 + adjusted_nominal_pos
+
           # if i < 0:
           # else:
           #   err = i - line_angle_rel_0
@@ -2434,8 +2513,8 @@ class CalibManager:
           # line_angle_rel_z_4 = angle_between_ccw_2d(proj_b0_line_translated_3, proj_b_line_translated3)
           # print(line_angle_rel_z_3  )
           # print(line_angle_rel_z_4  )
-          print("COMP: %s" % comp)
-          f.write("%0.6f %0.6f %0.6f\n" % (true_nominal_pos, comp, comp))
+          # print("COMP: %s" % comp)
+          f.write("%0.6f %0.6f %0.6f\n" % (adjusted_nominal_pos, comp, comp))
           # f.write("%d %s %s %s %s\n" % (i, line_angle_rel_z, line_angle_rel_z_2, line_angle_rel_z_3, line_angle_rel_z_4))
 
           #find intersect position with next A-line
@@ -2444,7 +2523,7 @@ class CalibManager:
             if nominal_pos > -1:
               #0 is the first 'negative' probed, 5 should be next but is probed after 5 more negatives
               next_line_feat_name = self.a_probes[ idx + 6 ]
-            elif nominal_pos > -24:
+            elif nominal_pos < -24:
               #-25 is the last increment in negative direction, 
               #its neighbor is the -20 line which was the previous feature probed
               next_line_feat_name = self.a_probes[ idx - 1 ]
@@ -2462,7 +2541,7 @@ class CalibManager:
           next_proj_line = self.metrologyManager.getActiveFeatureSet().getFeature(next_line_fid).line()
           #we want to know the XZ intersect coords within PartCsy
           this_orig_xz = (proj_a_line[0][0],proj_a_line[0][2])
-          this_vec_xz = (proj_a_line[1][0],proj_a_line[1][2])
+          this_vec_xz = (proj_a_line_dir[0],proj_a_line_dir[2])
           next_orig_xz = (next_proj_line[0][0],next_proj_line[0][2])
           next_vec_xz = (next_proj_line[1][0],next_proj_line[1][2])
           intersect_pos = find_line_intersect(this_orig_xz,this_vec_xz,next_orig_xz,next_vec_xz)
@@ -2500,14 +2579,14 @@ class CalibManager:
       pos_a_circle = np.matmul(self.cmm2cnc,np.append(pos_a_circle_partcsy,1))
       print(pos_a_circle)
       pos_a_circle_offset = pos_a_circle[0:3] + np.array([0,PROBING_POS_Y,0])
-      print(pos_a_circle)
-      yz_slope_dir_z = dir_z_cnccsy[1]/dir_z_cnccsy[2]
+      print(pos_a_circle_offset)
+      yz_slope_dir_z = z_line_cnccsy_dir[1]/z_line_cnccsy_dir[2]
       print(yz_slope_dir_z)
       feat_z_line = self.get_feature("z_line")
       z_orig_partcsy = feat_z_line.points()[0]
       z_orig_cnccsy = np.matmul(self.cmm2cnc,np.append(z_orig_partcsy,1))
       z_diff_z0_to_acor = pos_a_circle_offset[2] - z_orig_cnccsy[2]
-      dist_z0_to_acor = z_diff_z0_to_acor / dir_z_cnccsy[2]
+      dist_z0_to_acor = z_diff_z0_to_acor / z_line_cnccsy_dir[2]
       y_pos_of_z_at_travel = yz_slope_dir_z * dist_z0_to_acor + z_orig_cnccsy[1]
       print("z travel acor")
       print(dist_z0_to_acor)
@@ -2531,9 +2610,9 @@ class CalibManager:
       # dist_z0_to_bcor = pos_a_circle_offset[2] - z_orig_cnccsy[2]
       # x_offset_z_intersect_bcor = pos_b_circle[0] - (xy_slope_b_norm * y_offset_b_cor_to_a_cor)
       
-      xz_slope_dir_z = dir_z_cnccsy[0]/dir_z_cnccsy[2]
+      xz_slope_dir_z = z_line_cnccsy_dir[0]/z_line_cnccsy_dir[2]
       z_diff_z0_to_pos_bnorm_intersect_acor_xzplane = pos_bnorm_intersect_acor_xzplane[2] - z_orig_cnccsy[2]
-      dist_z0_to_pos_bnorm_intersect_acor_xzplane = z_diff_z0_to_pos_bnorm_intersect_acor_xzplane / dir_z_cnccsy[2]
+      dist_z0_to_pos_bnorm_intersect_acor_xzplane = z_diff_z0_to_pos_bnorm_intersect_acor_xzplane / z_line_cnccsy_dir[2]
       z_travel = pos_a_circle_offset[2] - z_orig_cnccsy[2]
       x_pos_of_z_at_travel = xz_slope_dir_z * dist_z0_to_pos_bnorm_intersect_acor_xzplane + z_orig_cnccsy[0]
       print(4)
@@ -2642,13 +2721,13 @@ class CalibManager:
     try:
       # b_home_err = float(self.last_find_b_proj_name[7:-5])
 
-      feat_b_circle = self.add_feature('b_verify_circle')
+      feat_b_circle = self.add_feature('b_verify_circle', Stages.WRITE_VERIFY_REPORT)
       for b_verify_probe_feat_name in self.b_verify_probes:
         print(b_verify_probe_feat_name)
         fid = self.feature_ids[b_verify_probe_feat_name]
         print('fid is %s' % fid)
         b_verify_line = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
-        b_verify_line_proj = self.add_feature('proj_' + b_verify_probe_feat_name)
+        b_verify_line_proj = self.add_feature('proj_' + b_verify_probe_feat_name, Stages.WRITE_VERIFY_REPORT)
         for pt in b_verify_line.points():
           plane_orig_to_pt = pt - self.fitted_features['fixture_top_face']['pt']
           dist = np.dot(plane_orig_to_pt, self.y_norm)
@@ -2722,13 +2801,13 @@ class CalibManager:
       # a_home_offset_true = a_home_offset_ini - a_home_err
       # offsets['a'] = a_home_offset_true
       
-      feat_a_circle = self.add_feature('a_circle')
+      feat_a_circle = self.add_feature('a_verify_circle', Stages.WRITE_VERIFY_REPORT)
 
       # project the a-angle lines to POCKET coord sys YZ plane
       for a_probe_feat_name in self.a_verify_probes:
         fid = self.feature_ids[a_probe_feat_name]
         a_line = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
-        a_line_proj = self.add_feature('proj_' + a_probe_feat_name)
+        a_line_proj = self.add_feature('proj_' + a_probe_feat_name, Stages.WRITE_VERIFY_REPORT)
         for pt in a_line.points():
           plane_orig_to_pt = pt - self.fitted_features['fixture_top_face']['pt']
           dist = np.dot(plane_orig_to_pt, self.x_norm)
@@ -2738,7 +2817,12 @@ class CalibManager:
       
       print("finished projecting a lines")
       a0_verify_line_fid = self.feature_ids["verify_a_%+.6f" % 0] 
-      vec_a0 = self.metrologyManager.getActiveFeatureSet().getFeature(a0_verify_line_fid).line()[1]
+      feat_a0 = self.metrologyManager.getActiveFeatureSet().getFeature(a0_verify_line_fid)
+      vec_a0 = feat_a0.line()[1]
+      if vec_a0[2] < 0:
+        #should be pointing up in PartCsy
+        vec_a0 = -1 * vec_a0
+
       vec_a0_translated = np.matmul(self.cmm2cnc,np.append(vec_a0,0))
       vec_a0_translated_2d = np.array([vec_a0_translated[1],vec_a0_translated[2]])
       # a_0_vec_fid = self.feature_ids['a_0_line_proj']
@@ -2752,20 +2836,41 @@ class CalibManager:
           print(a_probe_feat_name)
           fid = self.feature_ids['proj_' + a_probe_feat_name]
           print('fid is %s' % fid)
-          proj_a_line = self.metrologyManager.getActiveFeatureSet().getFeature(fid).line()
-          proj_a_line_translated = np.matmul(self.cmm2cnc,np.append(proj_a_line[1],0))
-          vec_astep_2d = np.array([proj_a_line_translated[1],proj_a_line_translated[2]])
+          feat_verify_a_proj = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
+          verify_a_proj_line = feat_verify_a_proj.line()
+          verify_a_proj_line_dir = verify_a_proj_line[1]
+          """make sure the best-fit line is in right direction
+          the probe_a routine collects points in a "decreasing radius" manner,
+          i.e. later points are closer to the center of rotation
+          The best-fit lines should point outwards
+          """
+          points = feat_verify_a_proj.points()
+          if points[0][2] > points[-1][2]:
+            #first point is higher than last, so line should be upwards to be away from center
+            if verify_a_proj_line_dir[2] < 0:
+              verify_a_proj_line_dir = -1 * verify_a_proj_line_dir
+          else:
+            #first point is lower than last, so line should be downwards to be away from center
+            if verify_a_proj_line_dir[2] > 0:
+              verify_a_proj_line_dir = -1 * verify_a_proj_line_dir
+
+          verify_a_proj_line_dir_translated = np.matmul(self.cmm2cnc,np.append(verify_a_proj_line_dir,0))
+          vec_astep_2d = np.array([verify_a_proj_line_dir_translated[1],verify_a_proj_line_dir_translated[2]])
           #find angle relative to Z
-          # line_angle_rel_z = angle_between_ccw_2d(b_0_vec, proj_b_line[1])
           line_angle_rel_0 = angle_between_ccw_2d(vec_astep_2d, vec_a0_translated_2d)
           err = 0
           nominal_pos = float(a_probe_feat_name[len('verify_a_'):])
-          # true_nominal_pos = nominal_pos - a_home_err
-          err = line_angle_rel_0 + nominal_pos
+          if line_angle_rel_0 > 0:
+            # A-pos less than true zero
+            err = line_angle_rel_0 + nominal_pos
+          else:
+            # positive valued A position
+            err = line_angle_rel_0 + nominal_pos
+
           # if i < 0:
           # else:
           #   err = i - line_angle_rel_0
-          comp = err
+          comp = -1*err
           print("COMP: %s" % comp)
           f.write("%d %s %s\n" % (nominal_pos, comp, comp))
           # f.write("%d %s %s %s %s\n" % (i, line_angle_rel_z, line_angle_rel_z_2, line_angle_rel_z_3, line_angle_rel_z_4))
@@ -2793,8 +2898,8 @@ class CalibManager:
           next_line_fid = self.feature_ids[next_line_feat_name]
           next_proj_line = self.metrologyManager.getActiveFeatureSet().getFeature(next_line_fid).line()
           #we want to know the XZ intersect coords within PartCsy
-          this_orig_xz = (proj_a_line[0][0],proj_a_line[0][2])
-          this_vec_xz = (proj_a_line[1][0],proj_a_line[1][2])
+          this_orig_xz = (verify_a_proj_line[0][0],verify_a_proj_line[0][2])
+          this_vec_xz = (verify_a_proj_line_dir[0],verify_a_proj_line_dir[2])
           next_orig_xz = (next_proj_line[0][0],next_proj_line[0][2])
           next_vec_xz = (next_proj_line[1][0],next_proj_line[1][2])
           intersect_pos = find_line_intersect(this_orig_xz,this_vec_xz,next_orig_xz,next_vec_xz)
@@ -2836,15 +2941,15 @@ class CalibManager:
 
 
       feat_z_line = self.get_feature("z_line")
-      dir_z_partcsy = -1*feat_z_line.line()[1]
-      dir_z_cnccsy = np.matmul(self.cmm2cnc,np.append(dir_z_partcsy,0))
-      yz_slope_dir_z = dir_z_cnccsy[1]/dir_z_cnccsy[2]
+      z_line_partcsy_dir = -1*feat_z_line.line()[1]
+      z_line_cnccsy_dir = np.matmul(self.cmm2cnc,np.append(z_line_partcsy_dir,0))
+      yz_slope_dir_z = z_line_cnccsy_dir[1]/z_line_cnccsy_dir[2]
       print(yz_slope_dir_z)
 
       z_orig_partcsy = feat_z_line.points()[0]
       z_orig_cnccsy = np.matmul(self.cmm2cnc,np.append(z_orig_partcsy,1))
       z_diff_z0_to_acor = pos_a_circle_offset[2] - z_orig_cnccsy[2]
-      dist_z0_to_acor = z_diff_z0_to_acor / dir_z_cnccsy[2]
+      dist_z0_to_acor = z_diff_z0_to_acor / z_line_cnccsy_dir[2]
       y_pos_of_z_at_travel = yz_slope_dir_z * dist_z0_to_acor + z_orig_cnccsy[1]
       print("z travel acor")
       print(dist_z0_to_acor)
@@ -2868,9 +2973,9 @@ class CalibManager:
       # dist_z0_to_bcor = pos_a_circle_offset[2] - z_orig_cnccsy[2]
       # x_offset_z_intersect_bcor = pos_b_circle[0] - (xy_slope_b_norm * y_offset_b_cor_to_a_cor)
       
-      xz_slope_dir_z = dir_z_cnccsy[0]/dir_z_cnccsy[2]
+      xz_slope_dir_z = z_line_cnccsy_dir[0]/z_line_cnccsy_dir[2]
       z_diff_z0_to_pos_bnorm_intersect_acor_xzplane = pos_bnorm_intersect_acor_xzplane[2] - z_orig_cnccsy[2]
-      dist_z0_to_pos_bnorm_intersect_acor_xzplane = z_diff_z0_to_pos_bnorm_intersect_acor_xzplane / dir_z_cnccsy[2]
+      dist_z0_to_pos_bnorm_intersect_acor_xzplane = z_diff_z0_to_pos_bnorm_intersect_acor_xzplane / z_line_cnccsy_dir[2]
       z_travel = pos_a_circle_offset[2] - z_orig_cnccsy[2]
       x_pos_of_z_at_travel = xz_slope_dir_z * dist_z0_to_pos_bnorm_intersect_acor_xzplane + z_orig_cnccsy[0]
       print(4)
