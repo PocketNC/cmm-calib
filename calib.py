@@ -15,30 +15,11 @@ import logging
 import json
 import compensation
 
-# import in-house modules
-# paths depend on dev platform
-import platform
-this_platform = platform.platform()
-if 'x86' in this_platform:
-  print('x86 os')
-  sys.path.append("/Users/jakedanczyk/source/ippclient")
-  from ipp import Client, TransactionCallbacks, float3, CmmException, readPointData
-  import ipp_routines as routines
+from ipp import Client, TransactionCallbacks, float3, CmmException, readPointData
+import ipp_routines as routines
 
-  sys.path.append("/Users/jakedanczyk/source/nfs/pocketnc/Settings")
-  import metrology
-  sys.path.append("/Users/jakedanczyk/source/nfs/pocketnc/Rockhopper")
-  import ini
-elif 'arm' in this_platform:
-  print('arm os')
-  sys.path.append("/opt/calib/ippclient")
-  from ipp import Client, TransactionCallbacks, float3, CmmException, readPointData
-  import ipp_routines as routines
-
-  sys.path.append("/opt/pocketnc/Settings")
-  import metrology
-  sys.path.append("/opt/pocketnc/Rockhopper")
-  import ini
+import metrology
+import ini
 
 def reload():
   importlib.reload(routines)
@@ -52,7 +33,6 @@ logger = logging.getLogger(__name__)
 ADDRESS_CMM = "10.0.0.1"
 PORT_IPP = 1294
 
-POCKETNC_DIR = "/var/opt/pocketnc"
 POCKETNC_VAR_DIR = os.environ.get('POCKETNC_VAR_DIRECTORY')
 RESULTS_DIR = os.path.join(POCKETNC_VAR_DIR, 'calib')
 if not os.path.exists(RESULTS_DIR):
