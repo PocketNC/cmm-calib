@@ -26,8 +26,17 @@ def reload():
   importlib.reload(metrology)
 
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(filename="/var/opt/pocketnc/calib/calib.log", 
+  filemode='a', 
+  level=logging.DEBUG,
+  format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+  datefmt='%H:%M:%S',
+)
 logger = logging.getLogger(__name__)
+fh = logging.FileHandler("/var/opt/pocketnc/calib/calib.log")
+fh.setLevel(logging.DEBUG)
+logger.addHandler(fh)
+logger.debug('hello world')
 
 
 ADDRESS_CMM = "10.0.0.1"
@@ -201,6 +210,11 @@ class Stages(Enum):
   PROBE_MACHINE_POS = auto()
   SETUP_PART_CSY = auto()
   PROBE_SPINDLE_POS = auto()
+  HOMING_X = auto()
+  HOMING_Y = auto()
+  HOMING_Z = auto()
+  HOMING_A = auto()
+  HOMING_B = auto()
   CHARACTERIZE_X = auto()
   CHARACTERIZE_Y = auto()
   CHARACTERIZE_Z = auto()
@@ -267,9 +281,11 @@ STEP_PREREQS = {
 }
 
 STEP_STAGES = {
-  Steps.VERIFY_X_HOME: Stages.CHARACTERIZE_X,
-  Steps.VERIFY_Y_HOME: Stages.CHARACTERIZE_Y,
-  Steps.VERIFY_Z_HOME: Stages.CHARACTERIZE_Z,
+  Steps.VERIFY_X_HOME: Stages.HOMING_X,
+  Steps.VERIFY_Y_HOME: Stages.HOMING_Y,
+  Steps.VERIFY_Z_HOME: Stages.HOMING_Z,
+  Steps.VERIFY_A_HOME: Stages.HOMING_A,
+  Steps.VERIFY_B_HOME: Stages.HOMING_B,
 }
 
 STAGE_PREREQS = {
@@ -460,6 +476,20 @@ def transform_waypoints(translate_vec, rotate_ang):
       else:
         rel_vec = waypoints[wp_key]
 
+def gen_spec_item():
+  return {'val': None, 'pass': None}
+
+SPECS = [
+  'x_homing_repeatability', 'y_homing_repeatability', 'z_homing_repeatability', 'a_homing_repeatability', 'b_homing_repeatability',
+  'xy_squareness', 'xz_squareness', 'yz_squareness',
+  'by_parallelness', 'ax_parallelness',
+  'b_runout',
+  'b_comp_max_err', 'a_comp_max_err',
+  'x_home_err', 'y_home_err', 'z_home_err', 'a_home_err', 'b_home_err',
+  'b_max_err', 'y_max_err'
+]
+
+SPEC_DICT = { k: gen_spec_item() for k in SPECS }
 
 
 ORIGIN = waypoints['top_l_bracket_back_right']
@@ -579,7 +609,11 @@ class CalibManager:
     self.a_ver_err = []
     self.b_ver_err = []
     self.results = {}
+    self.spec = SPEC_DICT
+    print(self.spec)
+    self.spec_failure = False
     # asyncio.create_task(self.zmq_listen())
+
 
 
 
@@ -675,7 +709,7 @@ class CalibManager:
   def save_stage_progress(self, stage):
     try:
       print('save_stage_progress 1')
-      save_data = {'features': {}, 'fitted_features': {}, 'state': {}}
+      save_data = {'features': {}, 'fitted_features': {}, 'state': {}, 'results': self.results, 'spec': self.spec}
       print('save_stage_progress 2')
       if stage in self.stage_features:
         print('save_stage_progress 3')
@@ -742,6 +776,10 @@ class CalibManager:
         setattr(self, prop_name, csy)
       else:
         setattr(self, prop_name, save_data['state'][prop_name])
+
+    # setattr(self, 'results', save_data['results'])
+    # setattr(self, 'spec', save_data['spec'])
+
     if is_performing_stage:
       self.stages_completed[str(stage)[len("Stages."):]] = True
       self.zmq_report('STEP_COMPLETE', stage_completed=True, stage=stage)
@@ -927,14 +965,12 @@ class CalibManager:
     try:
       if step in [
         Steps.CONNECT_TO_CMM, Steps.GO_TO_CLEARANCE_Z, Steps.GO_TO_CLEARANCE_Y,
-        Steps.PROBE_A_HOME, Steps.PROBE_B_HOME, 
-        Steps.VERIFY_A_HOME, Steps.VERIFY_B_HOME, 
+        Steps.PROBE_A_HOME, Steps.PROBE_B_HOME,
         Steps.PROBE_X_HOME, Steps.PROBE_Y_HOME, Steps.PROBE_Z_HOME,
-        Steps.VERIFY_X_HOME, Steps.VERIFY_Y_HOME, Steps.VERIFY_Z_HOME,
         Steps.FIND_POS_A, Steps.FIND_POS_B, Steps.DISCONNECT_FROM_CMM,
       ]:
         return (False, None)
-      elif step in [Steps.VERIFY_X_HOME, Steps.VERIFY_Y_HOME, Steps.VERIFY_Z_HOME]:
+      elif step in [Steps.VERIFY_X_HOME, Steps.VERIFY_Y_HOME, Steps.VERIFY_Z_HOME, Steps.VERIFY_A_HOME, Steps.VERIFY_B_HOME ]:
         return (self.std_stage_complete_check(ret), STEP_STAGES[step])
       elif step is Steps.SETUP_CMM:
         return (self.std_stage_complete_check(ret), Stages.SETUP_CMM)
@@ -1036,30 +1072,26 @@ class CalibManager:
   and return the measured value instead of returning nothing
   '''
   def run_step(self, step, *args):
-    print("Running step: %s, args:" % (step))
-    for arg in args:
-      print(arg)
-
-    # an exception will be thrown if step is not defined in the Steps enum
+    logger.info("Running step: %s, args:" % (step))
+    
+    # this is intended to throw an exception if step arg is not defined in Step enum
     if type(step) is str:
       step = Step[step.upper()]
     step in Steps
-    print('step is defined')
+
     if not self.is_ready_for_step(step):
-      print('not ready for step')
+      logger.info('not ready for step')
       return err_msg("1 or more prerequisite STAGES not complete before running STEP %s")
-    print('ready for step')
     step_method = getattr(self, step.name.lower())
-    print('step method is %s ' % str(step_method))
     try:
       self.run_state = STATE_RUN
       self.is_running = True
       self.zmq_report('UPDATE')
       step_ret = asyncio.get_event_loop().run_until_complete(step_method(*args))
-      print('step ran')
+      logger.info('Returning from step %s' % (step))
       did_a_stage_complete, stage_for_step = self.did_step_complete_stage(step, step_ret, *args)
-      print('stage completed: %s' % did_a_stage_complete)
       if did_a_stage_complete:
+        logger.info('Marking stage complete: %s' % (stage_for_step))
         if stage_for_step is Stages.CHARACTERIZE_A:
           self.stage_state.setdefault(Stages.CHARACTERIZE_A, {})
           self.stage_state[Stages.CHARACTERIZE_A]['a_calib_probes'] = self.a_calib_probes
@@ -1092,7 +1124,7 @@ class CalibManager:
         self.is_running = False
         self.run_state = STATE_IDLE
 
-        logger.debug('completing step %s' % step)
+        logger.info('completing step %s' % step)
         self.zmq_report('STEP_COMPLETE', stage_completed=True, stage=stage_for_step, step=step)
       else:
         if step in [Steps.VERIFY_A_HOME, Steps.VERIFY_A_HOMING, Steps.VERIFY_B_HOME, Steps.VERIFY_B_HOMING, Steps.CALC_VERIFY]:
@@ -1102,8 +1134,7 @@ class CalibManager:
         
         self.zmq_report('STEP_COMPLETE', step=step)
       
-      logger.debug('step %s return value %s' % (step, step_ret))
-      print('returning %s' % step_ret)
+      logger.info('step %s return value %s' % (step, step_ret))
       return step_ret
       # self.stages_completed[stage] = isStageComplete
     except CmmException as e:
@@ -1111,8 +1142,7 @@ class CalibManager:
       self.is_running = False
       self.run_state = STATE_ERROR
       self.zmq_report('ERROR', step=step)
-      print(msg)
-      logger.debug(msg)
+      logger.error(msg)
       return msg
 
   # def run_stage(self, stage, *args):
@@ -1165,7 +1195,7 @@ class CalibManager:
         # print('trying to disconnect')
         # asyncio.get_event_loop().run_until_complete(self.client.disconnect())
     except Exception as e:
-      print("disconnect e: %s" % e)
+      logger.error("disconnect e: %s" % e)
     
     try:
       self.client = None
@@ -1173,7 +1203,7 @@ class CalibManager:
       await self.client.connect()
       return True
     except Exception as e:
-      print("Exception while connecting")
+      logger.error("Exception while connecting")
 
   async def setup_cmm(self):
     if not self.skip_cmm:
@@ -1195,14 +1225,14 @@ class CalibManager:
     End
     '''
     if self.client is None or self.client.stream is None:
-      print("already disconnected")
+      logger.debug("already disconnected")
       return True
 
     try:
       await self.client.EndSession().send()
       await self.client.disconnect()
     except CmmException as ex:
-      print("CmmExceptions %s" % ex)
+      logger.error("CmmExceptions %s" % ex)
 
 
   async def end(self):
@@ -1210,14 +1240,14 @@ class CalibManager:
     End
     '''
     if self.client is None or self.client.stream is None:
-      print("already disconnected")
+      logger.debug("already disconnected")
       return True
 
     try:
       await self.client.EndSession().send()
       await self.client.disconnect()
     except CmmException as ex:
-      print("CmmExceptions %s" % ex)
+      logger.error("CmmExceptions %s" % ex)
 
 
 
@@ -1281,7 +1311,7 @@ class CalibManager:
     Locate machine and verify it is in home position
     '''
     try:
-      print("Checking machine position")
+      logger.info("Probing machine position")
       if self.table_slot is None:
         #table slot has not been set, raise exception,
         raise CalibException("Quitting VERIFY_MACHINE_POS, table slot has not been set")
@@ -1924,6 +1954,7 @@ class CalibManager:
       raise ex
 
   async def verify_x_home(self):
+    result = {}
     home_x_positions = []
     for x_feat_name in self.x_home_probes:
       fid = self.feature_ids[x_feat_name]
@@ -1940,10 +1971,18 @@ class CalibManager:
         dist = np.linalg.norm( home_x_pos - pos )
         if dist > max_dist:
           max_dist = dist
+    result['max_diff'] = max_dist
+    result['avg_pos'] = avg_home_x_pos.tolist()
+    self.results['x_home'] = result
+    self.spec['x_homing_repeatability']['val'] = max_dist
     if max_dist > LINEAR_HOMING_REPEATABILITY:
-      self.zmq_report('FAILURE', stage=Stages.CHARACTERIZE_X, step=Steps.VERIFY_X_HOME)
-      raise CalibException("FAIL: x homing variation exceeded spec: %s" % max_dist)
+      self.spec['x_homing_repeatability']['pass'] = False
+      self.spec_failure = True
+      # self.zmq_report('FAILURE', stage=Stages.CHARACTERIZE_X, step=Steps.VERIFY_X_HOME)
+      # raise CalibException("FAIL: x homing variation exceeded spec: %s" % max_dist)
+      return False
     else:
+      self.spec['x_homing_repeatability']['pass'] = True
       return True
 
   async def probe_y(self, y_pos_v2):
@@ -1974,6 +2013,7 @@ class CalibManager:
       raise ex
 
   async def verify_y_home(self):
+    result = {}
     home_positions = []
     for feat_name in self.y_home_probes:
       fid = self.feature_ids[feat_name]
@@ -1990,9 +2030,17 @@ class CalibManager:
         dist = np.linalg.norm( home_pos - pos )
         if dist > max_dist:
           max_dist = dist
+    result['max_diff'] = max_dist
+    result['avg_pos'] = avg_home_pos.tolist()
+    self.results['y_home'] = result
+    self.spec['y_homing_repeatability']['val'] = max_dist
     if max_dist > LINEAR_HOMING_REPEATABILITY:
-      raise CalibException("FAIL: Y homing variation exceeded spec: %s" % max_dist)
+      self.spec['y_homing_repeatability']['pass'] = False
+      self.spec_failure = True
+      return False
+      # raise CalibException("FAIL: Y homing variation exceeded spec: %s" % max_dist)
     else:
+      self.spec['y_homing_repeatability']['pass'] = False
       return True
 
 
@@ -2030,6 +2078,7 @@ class CalibManager:
       raise ex
 
   async def verify_z_home(self):
+    result = {}
     home_positions = []
     for feat_name in self.z_home_probes:
       fid = self.feature_ids[feat_name]
@@ -2046,9 +2095,16 @@ class CalibManager:
         dist = np.linalg.norm( home_pos - pos )
         if dist > max_dist:
           max_dist = dist
+    result['max_diff'] = max_dist
+    result['avg_pos'] = avg_home_pos.tolist()
+    self.results['z_home'] = result
+    self.spec['z_homing_repeatability']['val'] = max_dist
     if max_dist > LINEAR_HOMING_REPEATABILITY:
-      raise CalibException("FAIL: Z homing variation exceeded spec: %s" % max_dist)
+      self.spec['z_homing_repeatability']['pass'] = False
+      self.spec_failure = True
+      return False
     else:
+      self.spec['z_homing_repeatability']['pass'] = True
       return True
 
 
@@ -2146,12 +2202,19 @@ class CalibManager:
       raise ex
 
   async def verify_a_home(self):
-    min_a = min(self.a_home_values)
-    max_a = max(self.a_home_values)
-    diff = max_a - min_a
+    result = {}
+    result['min'] = min(self.a_home_values)
+    result['max'] = max(self.a_home_values)
+    result['avg'] = np.mean(self.a_home_values).tolist()
+    self.results['a_home'] = result
+    diff = result['max'] - result['min']
+    self.spec['a_homing_repeatability']['val'] = diff
     if diff > ANGULAR_HOMING_REPEATABILITY:
-      raise CalibException("FAIL: A homing variation exceeded spec: %s" % diff)
+      self.spec['a_homing_repeatability']['pass'] = False
+      self.spec_failure = True
+      return False
     else:
+      self.spec['a_homing_repeatability']['pass'] = True
       return True
 
   async def verify_a_homing(self):
@@ -2269,12 +2332,21 @@ class CalibManager:
       raise ex
 
   async def verify_b_home(self):
-    min_b = min(self.b_home_values)
-    max_b = max(self.b_home_values)
-    diff = max_b - min_b
+    result = {}
+    result['min'] = min(self.b_home_values)
+    result['max'] = max(self.b_home_values)
+    result['avg'] = np.mean(self.b_home_values).tolist()
+    # self.add_state('b_home', result, Stages.HOMING_B)
+    self.results['b_home'] = result
+
+    diff = result['max'] - result['min']
+    self.spec['b_homing_repeatability']['val'] = diff
     if diff > ANGULAR_HOMING_REPEATABILITY:
-      raise CalibException("FAIL: B homing variation exceeded spec: %s" % diff)
+      self.spec['b_homing_repeatability']['pass'] = False
+      self.spec_failure = True
+      return False
     else:
+      self.spec['b_homing_repeatability']['pass'] = True
       return True
 
   async def verify_b_homing(self):
@@ -2523,6 +2595,31 @@ class CalibManager:
       if dir_y_axis_partcsy[2] > 0:
         dir_y_axis_partcsy = -1*dir_y_axis_partcsy
       self.add_fitted_feature('y_line_real', {'pt': pos_y_line, 'norm': dir_y_axis_partcsy}, Stages.SETUP_CNC_CSY)
+    except Exception as e:
+      logger.error(str(e))
+      raise e
+
+    '''
+    Use X positions to define a line
+    '''
+    try:
+      print('x')
+
+      x_line = self.add_feature('x_line', Stages.SETUP_CNC_CSY)
+      x_line_proj = self.add_feature('x_line_proj', Stages.SETUP_CNC_CSY)
+      for x_probe_feat_name in self.x_calib_probes:
+        fid = self.feature_ids[x_probe_feat_name]
+        x_pos_feat = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
+        x_pos_sphere = x_pos_feat.sphere()
+        x_pos = x_pos_sphere[1]
+        x_line.addPoint(*x_pos)
+
+      (pos_x_line, dir_x_axis_partcsy) = x_line.line()
+      #in PartCSY, the Y component of X-axis dir should be positive 
+      #(PartCsy Z-axis is near-parallel to CncCsy Y-axis)
+      if dir_x_axis_partcsy[1] < 0:
+        dir_x_axis_partcsy = -1*dir_x_axis_partcsy
+      self.add_fitted_feature('x_line_real', {'pt': pos_x_line, 'norm': dir_x_axis_partcsy}, Stages.SETUP_CNC_CSY)
     except Exception as e:
       logger.error(str(e))
       raise e
@@ -2907,20 +3004,20 @@ class CalibManager:
     Construct CNC Coordinate System
     '''
     try:
-    #   y_norm = top_plane_norm
-    #   x_norm = np.cross(y_norm, z_line_partcsy_dir)
-    #   pocket_yz_plane_norm = x_norm
-    #   z_norm = np.cross(x_norm,y_norm)
-    #   p2m_construct = np.array([x_norm,y_norm,z_norm,top_plane_pt])
-    #   p2m = np.vstack((p2m_construct.transpose(),[0,0,0,1]))
-    #   cmm2cnc = np.linalg.inv(p2m)
-    #   #TODO use the plane defined by B-rotation instead of fixture top plane
-    #   dir_b_norm_cnccsy = np.matmul(cmm2cnc,np.append(top_plane_norm,0))
-      z_line_cnccsy_dir = np.matmul(self.cmm2cnc,np.append(z_line_partcsy_dir,0))
-    #   print("pocketnc 2 machine matrix")
-    #   print(p2m)
-    #   print("machine 2 pocketnc matrix")
-    #   print(cmm2cnc)
+      #   y_norm = top_plane_norm
+      #   x_norm = np.cross(y_norm, z_line_partcsy_dir)
+      #   pocket_yz_plane_norm = x_norm
+      #   z_norm = np.cross(x_norm,y_norm)
+      #   p2m_construct = np.array([x_norm,y_norm,z_norm,top_plane_pt])
+      #   p2m = np.vstack((p2m_construct.transpose(),[0,0,0,1]))
+      #   cmm2cnc = np.linalg.inv(p2m)
+      #   #TODO use the plane defined by B-rotation instead of fixture top plane
+      #   dir_b_norm_cnccsy = np.matmul(cmm2cnc,np.append(top_plane_norm,0))
+        z_line_cnccsy_dir = np.matmul(self.cmm2cnc,np.append(z_line_partcsy_dir,0))
+      #   print("pocketnc 2 machine matrix")
+      #   print(p2m)
+      #   print("machine 2 pocketnc matrix")
+      #   print(cmm2cnc)
     except Exception as e:
       print('Exception while constructing coordinate system')
       logger.error(e)
@@ -3198,6 +3295,12 @@ class CalibManager:
     Y HOME_OFFSET aligns Z-norm with A COR
     Z HOME_OFFSET places tool tip TOOL_OFFSET away from B COR
 
+    Account for homing variation 
+
+      """account for homing variation by offsetting by the vector drawn from 
+      the last Z home position to the average Z home position
+      """
+
     First find Y offset, so that height of Z-norm relative to B-points is known
       Find center of rotation of A
       Calculate Y-pos of spindle tip when spindle Z-pos is equal to Z-pos of A-CoR 
@@ -3221,15 +3324,18 @@ class CalibManager:
       print('slope_z_axis_in_cnc_yz_plane')
       print(slope_z_axis_in_cnc_yz_plane)
       feat_z_line = self.get_feature("z_line")
-      pos_z0_partcsy = feat_z_line.points()[0]
-      pos_z0_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_z0_partcsy,1))
-      print("pos_z0_cnccsy")
-      print(pos_z0_cnccsy)
-      z_travel_z0_to_acor = pos_a_circle_cnccsy_y0[2] - pos_z0_cnccsy[2]
+      # pos_z0_partcsy = feat_z_line.points()[0]
+      # pos_z0_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_z0_partcsy,1))
+      pos_z_home_partcsy = self.results['z_home']['avg_pos']
+      pos_z_home_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_z_home_partcsy,1))
+      
+      print("pos_z_home_cnccsy")
+      print(pos_z_home_cnccsy)
+      z_travel_z0_to_acor = pos_a_circle_cnccsy_y0[2] - pos_z_home_cnccsy[2]
       print("z_travel_z0_to_acor")
       print(z_travel_z0_to_acor)
       # dist_z0_to_acor = z_travel_z0_to_acor / z_line_cnccsy_dir[2]
-      y_pos_of_z_at_travel = slope_z_axis_in_cnc_yz_plane * z_travel_z0_to_acor + pos_z0_cnccsy[1]
+      y_pos_of_z_at_travel = slope_z_axis_in_cnc_yz_plane * z_travel_z0_to_acor + pos_z_home_cnccsy[1]
       print("y_pos_of_z_at_travel")
       print(y_pos_of_z_at_travel)
       # print(dist_z0_to_acor)
@@ -3283,10 +3389,16 @@ class CalibManager:
       # print("x offset err")
       # print(x_offset_for_z_norm_to_intersect_pos_bnorm_intersect_acor_xzplane)
 
-      z_travel_z0_to_cor = norm_b_circle_cnccsy[2] - pos_z0_cnccsy[2]
+      z_travel_z0_to_cor = norm_b_circle_cnccsy[2] - pos_z_home_cnccsy[2]
       print('z_travel_z0_to_cor')
       print(z_travel_z0_to_cor)
-      x_pos_of_z_at_travel = slope_z_axis_in_cnc_xz_plane * z_travel_z0_to_cor + pos_z0_cnccsy[0]
+      feat_x_line = self.get_feature("x_line")
+      pos_x0_partcsy = feat_x_line.points()[0]
+      
+      vec_last_x_home_to_avg_x_home_partcsy = pos_x0_partcsy - self.results['x_home']['avg_pos']
+      pos_z_home_offset_by_x_homing_variation_partcsy = pos_z_home_partcsy + vec_last_x_home_to_avg_x_home_partcsy
+      pos_z_home_offset_by_x_homing_variation_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_z_home_offset_by_x_homing_variation_partcsy,1))
+      x_pos_of_z_at_travel = slope_z_axis_in_cnc_xz_plane * z_travel_z0_to_cor + pos_z_home_offset_by_x_homing_variation_cnccsy[0]
       print('x_pos_of_z_at_travel')
       print(x_pos_of_z_at_travel)
 
