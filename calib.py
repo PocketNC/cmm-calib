@@ -198,6 +198,9 @@ class Steps(Enum):
   def has_name(cls, name):
       return name in cls._member_names_ 
 
+  def toJSON(self):
+    return str(self)
+
 '''
 A stage is a progress point in the Calibration Process
 The CalibManager
@@ -238,6 +241,17 @@ class Stages(Enum):
   @classmethod
   def has_name(cls, name):
       return name in cls._member_names_ 
+
+  def toJSON(self):
+    return str(self)
+
+
+class CalibEncoder(json.JSONEncoder):
+  def default(self, o):
+    if isinstance(o, (Steps, Stages)):
+      return str(o)
+    return super().default(o)
+
 
 
 '''
@@ -646,11 +660,13 @@ class CalibManager:
       report['status'] = self.status
       report['spec'] = self.spec
       report['did_stage_complete'] = did_stage_complete
+      report['stage'] = stage.name if stage else ""
       
       context = zmq.Context()
       socket = context.socket(zmq.PUSH)
       socket.bind('ipc:///tmp/cmm')
-      socket.send_json(report)
+      report_json = json.dumps(report, cls=CalibEncoder)
+      socket.send_json(report_json)
     except Exception as e:
       print('exception in zmq_report')
       print(e)
@@ -727,7 +743,7 @@ class CalibManager:
             save_data['state'][val] = attr
       savefile_path = os.path.join(RESULTS_DIR, str(stage))
       with open(savefile_path, 'w') as f:
-        f.write( json.dumps(save_data) )
+        f.write( json.dumps(save_data, cls=CalibEncoder) )
     except Exception as e:
       print(e)
       return e
@@ -780,7 +796,7 @@ class CalibManager:
 
       savefile_path = os.path.join(RESULTS_DIR, 'savefile')
       with open(savefile_path, 'w') as f:
-        f.write( json.dumps(save_data) )
+        f.write( json.dumps(save_data, cls=CalibEncoder) )
     except Exception as e:
       print("Exception saving features")
       print(e)
@@ -799,7 +815,7 @@ class CalibManager:
 
       savefile_path = os.path.join(RESULTS_DIR, 'fitted_features')
       with open(savefile_path, 'w') as f:
-        f.write( json.dumps(save_data) )
+        f.write( json.dumps(save_data, cls=CalibEncoder) )
     except Exception as e:
       print("Exception saving features")
       print(e)
@@ -861,7 +877,7 @@ class CalibManager:
       #   f.write( json.dumps(data) )
       data = self.part_csy.to_json_dict()
       with open(PART_CSY_SAVE_FILENAME, 'w') as f:
-        f.write( json.dumps(data) )
+        f.write( json.dumps(data, cls=CalibEncoder) )
     except Exception as e:
       print("Exception saving part_csy")
       print(e)
@@ -900,7 +916,7 @@ class CalibManager:
       # data['cmm2cnc'] = self.cmm2cnc.tolist()
       data = self.cnc_csy.to_json_dict()
       with open(CNC_CSY_SAVE_FILENAME, 'w') as f:
-        f.write( json.dumps(data) )
+        f.write( json.dumps(data, cls=CalibEncoder) )
     except Exception as e:
       print("Exception save_cnc_csy")
       print(e)
@@ -1071,12 +1087,12 @@ class CalibManager:
       self.status['run_state'] = STATE_RUN
       self.is_running = True
       self.zmq_report('UPDATE')
-      self.status['step'] = step
+      self.status['step'] = step.toJSON()
       # self.status['stage'] = stage # stage isn't known yet here.... remove from status, or add "stage_for_step" dict?
       step_ret = asyncio.get_event_loop().run_until_complete(step_method(*args))
       logger.info('Returning from step %s' % (step))
-      did_a_stage_complete, stage_for_step = self.did_step_complete_stage(step, step_ret, *args)
-      if did_a_stage_complete:
+      did_stage_complete, stage_for_step = self.did_step_complete_stage(step, step_ret, *args)
+      if did_stage_complete:
         logger.info('Marking stage complete: %s' % (stage_for_step))
         if stage_for_step is Stages.CHARACTERIZE_A:
           self.stage_state.setdefault(Stages.CHARACTERIZE_A, {})
@@ -1102,7 +1118,7 @@ class CalibManager:
         self.save_progress_for_stage(stage_for_step)
         #putting this in an if statement because maybe some steps will be run again 
         #AFTER their 'normal' stage is completed
-        self.stages_completed[str(stage_for_step)[len("Stages."):]] = did_a_stage_complete
+        self.stages_completed[str(stage_for_step)[len("Stages."):]] = did_stage_complete
         #dirty hack, making special case for SETUP_VERIFY. PROBE_A and PROBE_B need SETUP_CNC_CSY.
         if step is Steps.SETUP_VERIFY:
           self.stages_completed[str(Stages.SETUP_CNC_CSY)[len("Stages."):]] = True
@@ -1111,7 +1127,7 @@ class CalibManager:
         self.status['run_state'] = STATE_IDLE
 
         logger.info('completing step %s' % step)
-        self.zmq_report('STEP_COMPLETE', stage_complete=True, stage=stage_for_step)
+        self.zmq_report('STEP_COMPLETE', did_stage_complete=did_stage_complete, stage=stage_for_step)
       else:
         if step in [Steps.VERIFY_A_HOME, Steps.VERIFY_A_HOMING, Steps.VERIFY_B_HOME, Steps.VERIFY_B_HOMING, Steps.CALC_VERIFY]:
           if step_ret is False:
