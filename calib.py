@@ -535,8 +535,13 @@ class Csy:
 
 class CalibManager:
   def __init__(self):
-    self.skip_cmm = False
+    self.status = {}
+    self.status['skip_cmm'] = False
+    self.status['run_state'] = None
+
+
     self.client = None
+    
     self.metrologyManager = metrology.FeatureManager.getInstance()
     self.next_feature_id = 1
     self.feature_ids = {}
@@ -549,7 +554,6 @@ class CalibManager:
     # you'll need to look at the metrology module to see the specific meaning of the tuple values (length, point, norm, etc.)
     self.fitted_features = {}
 
-    self.run_state = None
     self.is_running = False
     self.stages_completed = {}
     for stage in Stages:
@@ -608,7 +612,6 @@ class CalibManager:
     self.b_comp = []
     self.a_ver_err = []
     self.b_ver_err = []
-    self.results = {}
     self.spec = SPEC_DICT
     print(self.spec)
     self.spec_failure = False
@@ -635,29 +638,26 @@ class CalibManager:
       print(msg)
     socket.close()
 
-  def zmq_report(self, why_string='UPDATE', stage_completed=False, stage=None, step=None):
+  def zmq_report(self, why_string='UPDATE', did_stage_complete=False, stage=None):
     print('zmq report start')
     try:
       report = {}
       report['why'] = why_string
-      report['stages'] = self.stages_completed
-      report['state'] = self.run_state
-      report['stage_completed'] = stage_completed
-      report['stage'] = str(stage)[len("Stages."):]
-      report['step'] = str(step)[len("Steps."):]
-      report['skip_cmm'] = self.skip_cmm
-      report['results'] = self.results
-      report['cmm_error'] = self.cmm_error
-      report['a_home_err'] = self.a_home_err
-      report['b_home_err'] = self.b_home_err
-      print(report)
+      report['stage_progress'] = self.stage_progress
+      report['status'] = self.status
+      report['spec'] = self.spec
+      
+      report['did_stage_complete'] = did_stage_complete
+      # report['stage'] = str(stage)[len("Stages."):]  <= should be under status
+      # report['step'] = str(step)[len("Steps."):] <= should be under status
+      # report['results'] = self.results  <= contents should be under either status or spec
+      # report['cmm_error'] = self.cmm_error  <= should be under status
+      # report['a_home_err'] = self.a_home_err  <= should be under status
+      # report['b_home_err'] = self.b_home_err <= should be under status
       context = zmq.Context()
       socket = context.socket(zmq.PUSH)
       socket.bind('ipc:///tmp/cmm')
-      # socket.send_string("yoooooo")
-      # socket.send_pyobj(self.stages_completed)
       socket.send_json(report)
-      # msg = socket.recv()
     except Exception as e:
       print('exception in zmq_report')
       print(e)
@@ -706,32 +706,24 @@ class CalibManager:
     # while len(self.metrologyManager.sets) > 0:
     #   self.metrologyManager.pop()
 
-  def save_stage_progress(self, stage):
+  def save_progress_for_stage(self, stage):
     try:
-      print('save_stage_progress 1')
-      save_data = {'features': {}, 'fitted_features': {}, 'state': {}, 'results': self.results, 'spec': self.spec}
-      print('save_stage_progress 2')
+      save_data = {'features': {}, 'fitted_features': {}, 'state': {}, 'status': self.status, 'spec': self.spec}
       if stage in self.stage_features:
-        print('save_stage_progress 3')
         for feat_name in self.stage_features[stage]:
           fid = self.feature_ids[feat_name]
           feat = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
           save_data['features'][feat_name] = feat.points().tolist()
       if stage in self.stage_fitted_features:
-        print('save_stage_progress 4')
         for feat_name in self.stage_fitted_features[stage]:
           save_data['fitted_features'][feat_name] = {}
-          print(feat_name)
           feat_data = self.fitted_features[feat_name]
-          print(feat_data)
           for datum_name in feat_data.keys():
-            print(datum_name)
             try:
               save_data['fitted_features'][feat_name][datum_name] = feat_data[datum_name].tolist() #convert numpy ndarrays to list for JSON compatibility
             except AttributeError:
               save_data['fitted_features'][feat_name][datum_name] = feat_data[datum_name]
       if stage in self.stage_state:
-        print('save_stage_progress 5')
         for val in self.stage_state[stage]:
           attr = getattr(self, val)
           if isinstance(attr, np.ndarray):
@@ -741,7 +733,6 @@ class CalibManager:
           else:
             save_data['state'][val] = attr
       savefile_path = os.path.join(RESULTS_DIR, str(stage))
-      print(save_data)
       with open(savefile_path, 'w') as f:
         f.write( json.dumps(save_data) )
     except Exception as e:
@@ -782,7 +773,7 @@ class CalibManager:
 
     if is_performing_stage:
       self.stages_completed[str(stage)[len("Stages."):]] = True
-      self.zmq_report('STEP_COMPLETE', stage_completed=True, stage=stage)
+      self.zmq_report('STEP_COMPLETE', did_stage_complete=True, stage=stage)
 
 
 
@@ -1084,9 +1075,11 @@ class CalibManager:
       return err_msg("1 or more prerequisite STAGES not complete before running STEP %s")
     step_method = getattr(self, step.name.lower())
     try:
-      self.run_state = STATE_RUN
+      self.status['run_state'] = STATE_RUN
       self.is_running = True
       self.zmq_report('UPDATE')
+      self.status['step'] = step
+      # self.status['stage'] = stage # stage isn't known yet here.... remove from status, or add "stage_for_step" dict?
       step_ret = asyncio.get_event_loop().run_until_complete(step_method(*args))
       logger.info('Returning from step %s' % (step))
       did_a_stage_complete, stage_for_step = self.did_step_complete_stage(step, step_ret, *args)
@@ -1113,7 +1106,7 @@ class CalibManager:
         elif stage_for_step is Stages.VERIFY_B:
           self.stage_state.setdefault(Stages.VERIFY_B, {})
           self.stage_state[Stages.VERIFY_B]['b_verify_probes'] = self.b_verify_probes
-        self.save_stage_progress(stage_for_step)
+        self.save_progress_for_stage(stage_for_step)
         #putting this in an if statement because maybe some steps will be run again 
         #AFTER their 'normal' stage is completed
         self.stages_completed[str(stage_for_step)[len("Stages."):]] = did_a_stage_complete
@@ -1122,17 +1115,17 @@ class CalibManager:
           self.stages_completed[str(Stages.SETUP_CNC_CSY)[len("Stages."):]] = True
         
         self.is_running = False
-        self.run_state = STATE_IDLE
+        self.status['run_state'] = STATE_IDLE
 
         logger.info('completing step %s' % step)
-        self.zmq_report('STEP_COMPLETE', stage_completed=True, stage=stage_for_step, step=step)
+        self.zmq_report('STEP_COMPLETE', stage_complete=True, stage=stage_for_step)
       else:
         if step in [Steps.VERIFY_A_HOME, Steps.VERIFY_A_HOMING, Steps.VERIFY_B_HOME, Steps.VERIFY_B_HOMING, Steps.CALC_VERIFY]:
           if step_ret is False:
             #failed a verification check, the process should stop
-            self.zmq_report('FAIL', step=step)
+            self.zmq_report('FAIL')
         
-        self.zmq_report('STEP_COMPLETE', step=step)
+        self.zmq_report('STEP_COMPLETE')
       
       logger.info('step %s return value %s' % (step, step_ret))
       return step_ret
@@ -1140,8 +1133,8 @@ class CalibManager:
     except CmmException as e:
       msg = err_msg("Failed running step %s, exception message %s" % (step, str(e)))
       self.is_running = False
-      self.run_state = STATE_ERROR
-      self.zmq_report('ERROR', step=step)
+      self.status['run_state'] = STATE_ERROR
+      self.zmq_report('ERROR')
       logger.error(msg)
       return msg
 
@@ -1186,7 +1179,7 @@ class CalibManager:
 
 
   async def connect_to_cmm(self):
-    if self.skip_cmm:
+    if self.status['skip_cmm']:
       return True
     try:
       if self.client.stream is not None:
@@ -1206,7 +1199,7 @@ class CalibManager:
       logger.error("Exception while connecting")
 
   async def setup_cmm(self):
-    if not self.skip_cmm:
+    if not self.status['skip_cmm']:
       await self.client.ClearAllErrors().complete()
       await routines.ensure_homed(self.client)
       await routines.ensure_tool_loaded(self.client, "Component_3.1.50.4.A0.0-B0.0")
@@ -1216,7 +1209,7 @@ class CalibManager:
       # await self.client.SetCsyTransformation("MachineCsy, 0,0,0,0,0,0").complete()
       await self.client.SetCoordSystem("MachineCsy").complete()
     await self.set_table_slot("front_right")
-    if not self.skip_cmm:
+    if not self.status['skip_cmm']:
       await self.set_part_csy(self.part_csy_pos, self.part_csy_euler)
     return True
 
@@ -1252,13 +1245,13 @@ class CalibManager:
 
 
   async def go_to_clearance_z(self):
-    if self.skip_cmm:
+    if self.status['skip_cmm']:
       return False
     await self.client.GoTo("Z(%s)" % Z_CLEARANCE_PART_CSY).complete()
     return False
 
   async def go_to_clearance_y(self):
-    if self.skip_cmm:
+    if self.status['skip_cmm']:
       return False
     await self.client.GoTo("Y(-250)").complete()
     return False
@@ -1440,7 +1433,7 @@ class CalibManager:
     part_csy = Csy(np.array(new_orig), None, None, None, new_euler_angles)
     self.add_state('part_csy', part_csy, Stages.SETUP_CNC_CSY)
     
-    if not self.skip_cmm:
+    if not self.status['skip_cmm']:
       await self.set_part_csy(new_orig, new_euler_angles)
     self.save_part_csy()
 
@@ -1973,7 +1966,7 @@ class CalibManager:
           max_dist = dist
     result['max_diff'] = max_dist
     result['avg_pos'] = avg_home_x_pos.tolist()
-    self.results['x_home'] = result
+    self.status['x_home'] = result
     self.spec['x_homing_repeatability']['val'] = max_dist
     if max_dist > LINEAR_HOMING_REPEATABILITY:
       self.spec['x_homing_repeatability']['pass'] = False
@@ -2032,7 +2025,7 @@ class CalibManager:
           max_dist = dist
     result['max_diff'] = max_dist
     result['avg_pos'] = avg_home_pos.tolist()
-    self.results['y_home'] = result
+    self.status['y_home'] = result
     self.spec['y_homing_repeatability']['val'] = max_dist
     if max_dist > LINEAR_HOMING_REPEATABILITY:
       self.spec['y_homing_repeatability']['pass'] = False
@@ -2097,7 +2090,7 @@ class CalibManager:
           max_dist = dist
     result['max_diff'] = max_dist
     result['avg_pos'] = avg_home_pos.tolist()
-    self.results['z_home'] = result
+    self.status['z_home'] = result
     self.spec['z_homing_repeatability']['val'] = max_dist
     if max_dist > LINEAR_HOMING_REPEATABILITY:
       self.spec['z_homing_repeatability']['pass'] = False
@@ -2206,7 +2199,7 @@ class CalibManager:
     result['min'] = min(self.a_home_values)
     result['max'] = max(self.a_home_values)
     result['avg'] = np.mean(self.a_home_values).tolist()
-    self.results['a_home'] = result
+    self.status['a_home'] = result
     diff = result['max'] - result['min']
     self.spec['a_homing_repeatability']['val'] = diff
     if diff > ANGULAR_HOMING_REPEATABILITY:
@@ -2224,18 +2217,18 @@ class CalibManager:
     Position is defined relative to spindle plunge (Z-axis) direction, spec <0.05
     """
     try:
-      self.results['a_homing'] = {}
+      self.status['a_homing'] = {}
       min_a = min(self.a_home_values)
       max_a = max(self.a_home_values)
       diff = max_a - min_a
       max_err = max(abs(max_a), abs(min_a))
-      self.results['a_homing']['repeatability'] = diff
-      self.results['a_homing']['max_err'] = max_err
+      self.status['a_homing']['repeatability'] = diff
+      self.status['a_homing']['max_err'] = max_err
       if diff > ANGULAR_HOMING_REPEATABILITY or max_err > 0.5*ANGULAR_HOMING_REPEATABILITY:
-        self.results['a_homing']['pass'] = False
+        self.status['a_homing']['pass'] = False
         return False
       else:
-        self.results['a_homing']['pass'] = True
+        self.status['a_homing']['pass'] = True
         return True
     except Exception as ex:
       logger.error("exception %s" % str(ex))
@@ -2337,7 +2330,7 @@ class CalibManager:
     result['max'] = max(self.b_home_values)
     result['avg'] = np.mean(self.b_home_values).tolist()
     # self.add_state('b_home', result, Stages.HOMING_B)
-    self.results['b_home'] = result
+    self.status['b_home'] = result
 
     diff = result['max'] - result['min']
     self.spec['b_homing_repeatability']['val'] = diff
@@ -2356,18 +2349,18 @@ class CalibManager:
     Position is defined relative to spindle plunge (Z-axis) direction, spec <0.05
     """
     try:
-      self.results['b_homing'] = {}
+      self.status['b_homing'] = {}
       min_b = min(self.b_home_values)
       max_b = max(self.b_home_values)
       diff = max_b - min_b
       max_err = max(abs(max_b), abs(min_b))
-      self.results['b_homing']['repeatability'] = diff
-      self.results['b_homing']['max_err'] = max_err
+      self.status['b_homing']['repeatability'] = diff
+      self.status['b_homing']['max_err'] = max_err
       if diff > ANGULAR_HOMING_REPEATABILITY or max_err > 0.5*ANGULAR_HOMING_REPEATABILITY:
-        self.results['b_homing']['pass'] = False
+        self.status['b_homing']['pass'] = False
         return False
       else:
-        self.results['b_homing']['pass'] = True
+        self.status['b_homing']['pass'] = True
         return True
     except Exception as ex:
       logger.error("exception %s" % str(ex))
@@ -3326,7 +3319,7 @@ class CalibManager:
       feat_z_line = self.get_feature("z_line")
       # pos_z0_partcsy = feat_z_line.points()[0]
       # pos_z0_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_z0_partcsy,1))
-      pos_z_home_partcsy = self.results['z_home']['avg_pos']
+      pos_z_home_partcsy = self.status['z_home']['avg_pos']
       pos_z_home_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_z_home_partcsy,1))
       
       print("pos_z_home_cnccsy")
@@ -3395,7 +3388,7 @@ class CalibManager:
       feat_x_line = self.get_feature("x_line")
       pos_x0_partcsy = feat_x_line.points()[0]
       
-      vec_last_x_home_to_avg_x_home_partcsy = pos_x0_partcsy - self.results['x_home']['avg_pos']
+      vec_last_x_home_to_avg_x_home_partcsy = pos_x0_partcsy - self.status['x_home']['avg_pos']
       pos_z_home_offset_by_x_homing_variation_partcsy = pos_z_home_partcsy + vec_last_x_home_to_avg_x_home_partcsy
       pos_z_home_offset_by_x_homing_variation_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_z_home_offset_by_x_homing_variation_partcsy,1))
       x_pos_of_z_at_travel = slope_z_axis_in_cnc_xz_plane * z_travel_z0_to_cor + pos_z_home_offset_by_x_homing_variation_cnccsy[0]
@@ -3530,7 +3523,7 @@ class CalibManager:
       self.table_slot = "front_right"
 
       await self.load_part_csy()
-      if not self.skip_cmm:
+      if not self.status['skip_cmm']:
         await self.set_cmm_csy(self.part_csy)
 
       await self.load_cnc_csy()
