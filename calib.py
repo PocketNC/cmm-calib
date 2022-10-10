@@ -643,17 +643,10 @@ class CalibManager:
     try:
       report = {}
       report['why'] = why_string
-      report['stage_progress'] = self.stage_progress
       report['status'] = self.status
       report['spec'] = self.spec
-      
       report['did_stage_complete'] = did_stage_complete
-      # report['stage'] = str(stage)[len("Stages."):]  <= should be under status
-      # report['step'] = str(step)[len("Steps."):] <= should be under status
-      # report['results'] = self.results  <= contents should be under either status or spec
-      # report['cmm_error'] = self.cmm_error  <= should be under status
-      # report['a_home_err'] = self.a_home_err  <= should be under status
-      # report['b_home_err'] = self.b_home_err <= should be under status
+      
       context = zmq.Context()
       socket = context.socket(zmq.PUSH)
       socket.bind('ipc:///tmp/cmm')
