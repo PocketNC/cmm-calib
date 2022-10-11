@@ -631,6 +631,10 @@ class CalibManager:
     self.spec_failure = False
     # asyncio.create_task(self.zmq_listen())
 
+    for f in ['a.comp.raw', 'b.comp.raw', 'CalibrationOverlay.inc']:
+      curr_path = os.path.join(RESULTS_DIR, f)
+      dest_path = os.path.join(POCKETNC_VAR_DIR, f)
+      os.popen('cp %s %s' % (curr_path, dest_path))
 
 
 
@@ -3518,6 +3522,20 @@ class CalibManager:
     except Exception as e:
       print(e)
       return e
+
+    """
+    Copy files to POCKETNC_VAR_DIR
+    """
+    try:
+      for f in ['a.comp.raw', 'b.comp.raw', 'CalibrationOverlay.inc']:
+        f = f[:-4] if f.endswith('.raw') else f
+        curr_path = os.path.join(RESULTS_DIR, f)
+        dest_path = os.path.join(POCKETNC_VAR_DIR, f)
+        os.popen('cp %s %s' % (curr_path, dest_path))
+    except Exception as e:
+      print(e)
+      return str(e)
+
 
     return True
 
