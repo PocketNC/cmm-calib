@@ -1186,18 +1186,16 @@ class CalibManager:
     if self.status['skip_cmm']:
       return True
     try:
-      if self.client.stream is not None:
-        #assume we are connected if we have a stream?
+      if self.client and self.client.is_connected():
         return True
-        # print('trying to disconnect')
-        # asyncio.get_event_loop().run_until_complete(self.client.disconnect())
     except Exception as e:
       logger.error("disconnect e: %s" % e)
     
     try:
-      self.client = None
       self.client = Client(ADDRESS_CMM, PORT_IPP)
       await self.client.connect()
+      await self.client.EndSession().complete()
+      await self.client.StartSession().complete()
       return True
     except Exception as e:
       logger.error("Exception while connecting")
