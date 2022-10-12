@@ -618,8 +618,6 @@ class CalibManager:
     self.active_offsets['a'] =  float(ini.get_parameter(self.ini_data, "JOINT_3", "HOME_OFFSET")["values"]["value"])
     self.active_offsets['b'] =  float(ini.get_parameter(self.ini_data, "JOINT_4", "HOME_OFFSET")["values"]["value"])
 
-    self.a_home_err = None
-    self.b_home_err = None
     self.a_err = []
     self.b_err = []
     self.a_comp = []
@@ -627,15 +625,7 @@ class CalibManager:
     self.a_ver_err = []
     self.b_ver_err = []
     self.spec = SPEC_DICT
-    print(self.spec)
     self.spec_failure = False
-    # asyncio.create_task(self.zmq_listen())
-
-    for f in ['a.comp.raw', 'b.comp.raw', 'CalibrationOverlay.inc']:
-      curr_path = os.path.join(RESULTS_DIR, f)
-      dest_path = os.path.join(POCKETNC_VAR_DIR, f)
-      os.popen('cp %s %s' % (curr_path, dest_path))
-
 
 
   def getInstance():
@@ -663,6 +653,7 @@ class CalibManager:
       report['why'] = why_string
       report['status'] = self.status
       report['spec'] = self.spec
+      report['spec_failure'] = self.spec_failure
       report['did_stage_complete'] = did_stage_complete
       report['stage'] = stage.name if stage else ""
       
@@ -1133,21 +1124,21 @@ class CalibManager:
         logger.info('completing step %s' % step)
         self.zmq_report('STEP_COMPLETE', did_stage_complete=did_stage_complete, stage=stage_for_step)
       else:
-        if step in [Steps.VERIFY_A_HOME, Steps.VERIFY_A_HOMING, Steps.VERIFY_B_HOME, Steps.VERIFY_B_HOMING, Steps.CALC_VERIFY]:
-          if step_ret is False:
-            #failed a verification check, the process should stop
-            self.zmq_report('FAIL')
-        
-        self.zmq_report('STEP_COMPLETE')
+        if self.spec_failure:
+          #failed a verification check, the process should stop
+          self.zmq_report(MSG_WHY_FAIL)
+        else:
+          self.zmq_report('STEP_COMPLETE')
       
       logger.info('step %s return value %s' % (step, step_ret))
       return step_ret
       # self.stages_completed[stage] = isStageComplete
     except CmmException as e:
       msg = err_msg("Failed running step %s, exception message %s" % (step, str(e)))
+      did_stage_complete, stage_for_step = self.did_step_complete_stage(step, e, *args)
       self.is_running = False
       self.status['run_state'] = STATE_ERROR
-      self.zmq_report('ERROR')
+      self.zmq_report('ERROR', did_stage_complete=did_stage_complete, stage=stage_for_step)
       logger.error(msg)
       return msg
 
@@ -2442,7 +2433,7 @@ class CalibManager:
 
       logger.debug("found A pos %s" % a_pos)
       if is_homing_check:
-        self.a_home_err = a_pos
+        self.status['a_home_err'] = a_pos
         self.a_home_values.append(a_pos)
         self.add_state('a_home_values', self.a_home_values, Stages.CHARACTERIZE_A)
       else:
@@ -2509,7 +2500,7 @@ class CalibManager:
       
       logger.debug("found B pos %s" % b_pos)
       if is_homing_check:
-        self.b_home_err = b_pos
+        self.status['b_home_err'] = b_pos
         self.b_home_values.append(b_pos)
         self.add_state('b_home_values', self.b_home_values, Stages.CHARACTERIZE_B)
       else:
