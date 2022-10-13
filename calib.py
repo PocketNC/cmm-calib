@@ -360,6 +360,7 @@ V2_VARIANT_50 = "V2-50"
 STATE_RUN = 'RUN'
 STATE_IDLE = 'IDLE'
 STATE_ERROR = 'ERROR'
+STATE_FAIL = 'FAIL'
 STATE_PAUSE = 'PAUSE'
 STATE_STOP = 'STOP'
 
@@ -549,20 +550,29 @@ class Csy:
 
 class CalibManager:
   def __init__(self):
-    self.status = {}
-    self.status['skip_cmm'] = False
-    self.status['run_state'] = None
-
-
     self.client = None
+
+    self.config = {}
+    self.config['skip_cmm'] = False
+    self.config['table_slot'] = None
+
+    self.status = {}
+    self.status['is_running'] = False
+    self.status['run_state'] = None
+    self.status['cmm_error'] = False
+    self.status['error'] = False
+    self.status['error_msg'] = None
+    self.status['spec_failure'] = False
     
     self.metrologyManager = metrology.FeatureManager.getInstance()
     self.next_feature_id = 1
     self.feature_ids = {}
-    # stage_features is dict, keys are stage names, values are lists of feature names
+    # stage_features keys are names of stages, values are lists of feature names
     self.stage_features = {}
+    # stage_fitted_features keys are names of stages, values are lists of fitted feature names
     self.stage_fitted_features = {}
     self.stage_state = {}
+
     # keys for fitted_features dict are the feature names, the values are tuples of characterizing data
     # the meaning of the tuple values varies by feature type (circle, line, plane, etc.)
     # you'll need to look at the metrology module to see the specific meaning of the tuple values (length, point, norm, etc.)
@@ -573,19 +583,10 @@ class CalibManager:
     for stage in Stages:
       self.stages_completed[str(stage)[len("Stages."):]] = False
 
-
     self.is_started_a = False
     self.is_started_b = False
 
-    # self.model = "V2-10"
-    # waypoints['z_home'] = waypoints['z_home_10']
-    # self.machine_props = V2_10_PROPS
-    # self.model = "V2-50"
-    # waypoints['z_home'] = waypoints['z_home_50']
-    # self.machine_props = V2_50_PROPS
 
-    self.cmm_error = False
-    self.table_slot = None
     self.part_csy_pos = None
     self.part_csy_euler = None
     self.part_csy = None
@@ -625,7 +626,6 @@ class CalibManager:
     self.a_ver_err = []
     self.b_ver_err = []
     self.spec = SPEC_DICT
-    self.spec_failure = False
 
 
   def getInstance():
@@ -647,13 +647,12 @@ class CalibManager:
     socket.close()
 
   def zmq_report(self, why_string='UPDATE', did_stage_complete=False, stage=None):
-    print('zmq report start')
+    logger.debug('Start of zmq_report')
     try:
       report = {}
       report['why'] = why_string
       report['status'] = self.status
       report['spec'] = self.spec
-      report['spec_failure'] = self.spec_failure
       report['did_stage_complete'] = did_stage_complete
       report['stage'] = stage.name if stage else ""
       
@@ -1124,7 +1123,7 @@ class CalibManager:
         logger.info('completing step %s' % step)
         self.zmq_report('STEP_COMPLETE', did_stage_complete=did_stage_complete, stage=stage_for_step)
       else:
-        if self.spec_failure:
+        if self.status['spec_failure']:
           #failed a verification check, the process should stop
           self.zmq_report(MSG_WHY_FAIL)
         else:
@@ -1134,56 +1133,34 @@ class CalibManager:
       return step_ret
       # self.stages_completed[stage] = isStageComplete
     except CmmException as e:
-      msg = err_msg("Failed running step %s, exception message %s" % (step, str(e)))
-      did_stage_complete, stage_for_step = self.did_step_complete_stage(step, e, *args)
-      self.is_running = False
-      self.status['run_state'] = STATE_ERROR
-      self.zmq_report('ERROR', did_stage_complete=did_stage_complete, stage=stage_for_step)
+      msg = err_msg("CMM error occured while running step %s:  %s" % (step, str(e)))
       logger.error(msg)
+      did_stage_complete, stage_for_step = self.did_step_complete_stage(step, e, *args)
+      self.updateStatusException(e)
+      self.zmq_report('ERROR', did_stage_complete=did_stage_complete, stage=stage_for_step)
+      return msg
+    except Exception as e:
+      msg = err_msg("Error while running step %s:  %s" % (step, str(e)))
+      logger.error(msg)
+      did_stage_complete, stage_for_step = self.did_step_complete_stage(step, e, *args)
+      self.updateStatusException(e)
+      self.zmq_report('ERROR', did_stage_complete=did_stage_complete, stage=stage_for_step)
       return msg
 
-  # def run_stage(self, stage, *args):
-  #   print("Running stage: %s " % stage)
-  #   # an exception will be thrown if stage is not defined in the Stages enum
-  #   if type(stage) is str:
-  #     print("type is string")
-  #     stage = Stages[stage.upper()]
-  #     print("stage is ")
-  #     print(stage)
-  #   stage in Stages
-  #   print('stage in stages')
 
-  #   # try:
-  #   #   if self.client is not None and self.client.stream is not None:
-  #   #     print('trying to disconnect')
-  #   #     asyncio.get_event_loop().run_until_complete(self.client.disconnect())
-  #   # except Exception as e:
-  #   #   print("disconnect e: %s" % e)
+  def updateStatusException(self, exception):
+      self.status['cmm_error'] = True
+      self.status['error'] = True
+      self.status['error_msg'] = str(exception)
+      self.status['is_running'] = False
+      self.status['run_state'] = STATE_ERROR
 
-  #   if stage in STAGE_PREREQS:
-  #     print('stage has prereqs')
-
-  #     for prereqStage in STAGE_PREREQS[stage]:
-  #       print(prereqStage)
-  #       if not self.stages_completed[str(prereqStage)[len("Stages."):]]:
-  #         self.run_stage(prereqStage)
-    
-  #   # if stage != Stages.CONNECT_TO_CMM and (self.client is None or self.client.stream is None):
-  #   #   #something broken, quit
-  #   #   return "FAILED"
-
-  #   stage_method = getattr(self, stage.name.lower())
-  #   try:
-  #     isStageComplete = asyncio.get_event_loop().run_until_complete(stage_method(*args))
-  #     print('completing stage %s' % stage)
-  #     self.stages_completed[str(stage)[len("Stages."):]] = isStageComplete
-  #   except CmmException as e:
-  #     print("Failed running stage %s" % stage)
-  #     return "FAILED"
-
+  def updateStatusFailure(self):
+      self.status['is_running'] = False
+      self.status['run_state'] = STATE_FAIL
 
   async def connect_to_cmm(self):
-    if self.status['skip_cmm']:
+    if self.config['skip_cmm']:
       return True
     try:
       if self.client and self.client.is_connected():
@@ -1199,9 +1176,11 @@ class CalibManager:
       return True
     except Exception as e:
       logger.error("Exception while connecting")
+      logger.error(e)
+      raise e
 
   async def setup_cmm(self):
-    if not self.status['skip_cmm']:
+    if not self.config['skip_cmm']:
       await self.client.ClearAllErrors().complete()
       await routines.ensure_homed(self.client)
       await routines.ensure_tool_loaded(self.client, "Component_3.1.50.4.A0.0-B0.0")
@@ -1211,7 +1190,7 @@ class CalibManager:
       # await self.client.SetCsyTransformation("MachineCsy, 0,0,0,0,0,0").complete()
       await self.client.SetCoordSystem("MachineCsy").complete()
     await self.set_table_slot("front_right")
-    if not self.status['skip_cmm']:
+    if not self.config['skip_cmm']:
       await self.set_part_csy(self.part_csy_pos, self.part_csy_euler)
     return True
 
@@ -1247,19 +1226,19 @@ class CalibManager:
 
 
   async def go_to_clearance_z(self):
-    if self.status['skip_cmm']:
+    if self.config['skip_cmm']:
       return False
     await self.client.GoTo("Z(%s)" % Z_CLEARANCE_PART_CSY).complete()
     return False
 
   async def go_to_clearance_y(self):
-    if self.status['skip_cmm']:
+    if self.config['skip_cmm']:
       return False
     await self.client.GoTo("Y(-250)").complete()
     return False
 
   async def set_table_slot(self, slot):
-    self.table_slot = slot
+    self.config['table_slot'] = slot
     self.part_csy_pos = waypoints_table[slot + '_slot_origin']
     self.part_csy_euler = table_slot_euler_angles[slot]
     self.part_csy = Csy(np.array(self.part_csy_pos), None, None, None, self.part_csy_euler)
@@ -1307,7 +1286,7 @@ class CalibManager:
     '''
     try:
       logger.info("Probing machine position")
-      if self.table_slot is None:
+      if self.config['table_slot'] is None:
         #table slot has not been set, raise exception,
         raise CalibException("Quitting VERIFY_MACHINE_POS, table slot has not been set")
       await self.client.GoTo("Z(250)").complete()
@@ -1435,7 +1414,7 @@ class CalibManager:
     part_csy = Csy(np.array(new_orig), None, None, None, new_euler_angles)
     self.add_state('part_csy', part_csy, Stages.SETUP_CNC_CSY)
     
-    if not self.status['skip_cmm']:
+    if not self.config['skip_cmm']:
       await self.set_part_csy(new_orig, new_euler_angles)
     self.save_part_csy()
 
@@ -1575,7 +1554,7 @@ class CalibManager:
         logger.info("Finding spindle position")
         spindle_pos = self.add_feature('spindle_pos', Stages.PROBE_SPINDLE_POS)
 
-        if self.table_slot is None:
+        if self.config['table_slot'] is None:
           #table slot has not been set, raise exception,
           raise CalibException("Quitting PROBE_SPINDLE_POS, table slot has not been set")
         await self.client.GoTo("Z(%s)" % Z_CLEARANCE_PART_CSY).complete()
@@ -1972,7 +1951,7 @@ class CalibManager:
     self.spec['x_homing_repeatability']['val'] = max_dist
     if max_dist > LINEAR_HOMING_REPEATABILITY:
       self.spec['x_homing_repeatability']['pass'] = False
-      self.spec_failure = True
+      self.status['spec_failure'] = True
       # self.zmq_report('FAILURE', stage=Stages.CHARACTERIZE_X, step=Steps.VERIFY_X_HOME)
       # raise CalibException("FAIL: x homing variation exceeded spec: %s" % max_dist)
       return False
@@ -2031,7 +2010,7 @@ class CalibManager:
     self.spec['y_homing_repeatability']['val'] = max_dist
     if max_dist > LINEAR_HOMING_REPEATABILITY:
       self.spec['y_homing_repeatability']['pass'] = False
-      self.spec_failure = True
+      self.status['spec_failure'] = True
       return False
       # raise CalibException("FAIL: Y homing variation exceeded spec: %s" % max_dist)
     else:
@@ -2096,7 +2075,7 @@ class CalibManager:
     self.spec['z_homing_repeatability']['val'] = max_dist
     if max_dist > LINEAR_HOMING_REPEATABILITY:
       self.spec['z_homing_repeatability']['pass'] = False
-      self.spec_failure = True
+      self.status['spec_failure'] = True
       return False
     else:
       self.spec['z_homing_repeatability']['pass'] = True
@@ -2154,7 +2133,7 @@ class CalibManager:
       logger.debug("drive_vec %s" % drive_vec)
       try:
         #there are issues, the yz routine assumes the CNC is aligned so that its X-axis is parallel with the CMM MachineCsy X-axis
-        if self.table_slot == "front_right":
+        if self.config['table_slot'] == "front_right":
           points = await routines.headprobe_line_yz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,3,1)
         else:
           points = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,3,1)
@@ -2206,7 +2185,7 @@ class CalibManager:
     self.spec['a_homing_repeatability']['val'] = diff
     if diff > ANGULAR_HOMING_REPEATABILITY:
       self.spec['a_homing_repeatability']['pass'] = False
-      self.spec_failure = True
+      self.status['spec_failure'] = True
       return False
     else:
       self.spec['a_homing_repeatability']['pass'] = True
@@ -2338,7 +2317,7 @@ class CalibManager:
     self.spec['b_homing_repeatability']['val'] = diff
     if diff > ANGULAR_HOMING_REPEATABILITY:
       self.spec['b_homing_repeatability']['pass'] = False
-      self.spec_failure = True
+      self.status['spec_failure'] = True
       return False
     else:
       self.spec['b_homing_repeatability']['pass'] = True
@@ -3536,10 +3515,10 @@ class CalibManager:
     """
     #load data from before reboot that is needed to construct the CNC coord sys
     try:
-      self.table_slot = "front_right"
+      self.config['table_slot'] = "front_right"
 
       await self.load_part_csy()
-      if not self.status['skip_cmm']:
+      if not self.config['skip_cmm']:
         await self.set_cmm_csy(self.part_csy)
 
       await self.load_cnc_csy()
