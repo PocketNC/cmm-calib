@@ -658,12 +658,13 @@ class CalibManager:
       
       context = zmq.Context()
       socket = context.socket(zmq.PUSH)
+      socket.set(zmq.SNDTIMEO, 3000)
       socket.bind('ipc:///tmp/cmm')
       report_json = json.dumps(report, cls=CalibEncoder)
-      socket.send_json(report_json)
+      socket.send_string(report_json)
     except Exception as e:
-      print('exception in zmq_report')
-      print(e)
+      logger.debug('exception in zmq_report')
+      logger.debug(e)
       raise e
 
 
@@ -1138,15 +1139,14 @@ class CalibManager:
       did_stage_complete, stage_for_step = self.did_step_complete_stage(step, e, *args)
       self.updateStatusException(e)
       self.zmq_report('ERROR', did_stage_complete=did_stage_complete, stage=stage_for_step)
-      return msg
+      raise e
     except Exception as e:
       msg = err_msg("Error while running step %s:  %s" % (step, str(e)))
       logger.error(msg)
       did_stage_complete, stage_for_step = self.did_step_complete_stage(step, e, *args)
       self.updateStatusException(e)
       self.zmq_report('ERROR', did_stage_complete=did_stage_complete, stage=stage_for_step)
-      return msg
-
+      raise e
 
   def updateStatusException(self, exception):
       self.status['cmm_error'] = True
@@ -1629,7 +1629,7 @@ class CalibManager:
         self.add_fitted_feature(FEAT_SPINDLE_POS_SPHERE, {'pos': pos, 'radius': radius}, Stages.PROBE_SPINDLE_POS)
         return True
       except Exception as ex:
-        print("exception %s" % str(ex))
+        logger.debug("exception %s" % str(ex))
         raise ex
         # await self.client.disconnect()
 
