@@ -404,7 +404,8 @@ A_PROBE_END_TRIGGER = 129
 B_PROBE_END_TRIGGER = 356
 
 LINEAR_HOMING_REPEATABILITY = 0.001 * 25.4 # 0.001 inches, 0.0254 mm
-ANGULAR_HOMING_REPEATABILITY = 0.04 # degrees
+B_HOMING_REPEATABILITY = 0.04 # degrees
+A_HOMING_REPEATABILITY = 0.08 # degrees
 
 V2_10_PROPS = {
   'A_MIN': -25,
@@ -2012,7 +2013,7 @@ class CalibManager:
       return False
       # raise CalibException("FAIL: Y homing variation exceeded spec: %s" % max_dist)
     else:
-      self.spec['y_homing_repeatability']['pass'] = False
+      self.spec['y_homing_repeatability']['pass'] = True
       return True
 
 
@@ -2178,7 +2179,7 @@ class CalibManager:
     self.status['a_home'] = result
     diff = result['max'] - result['min']
     self.spec['a_homing_repeatability']['val'] = diff
-    if diff > ANGULAR_HOMING_REPEATABILITY:
+    if diff > A_HOMING_REPEATABILITY:
       self.spec['a_homing_repeatability']['pass'] = False
       self.status['spec_failure'] = True
       return False
@@ -2200,7 +2201,7 @@ class CalibManager:
       max_err = max(abs(max_a), abs(min_a))
       self.status['a_homing']['repeatability'] = diff
       self.status['a_homing']['max_err'] = max_err
-      if diff > ANGULAR_HOMING_REPEATABILITY or max_err > 0.5*ANGULAR_HOMING_REPEATABILITY:
+      if diff > A_HOMING_REPEATABILITY or max_err > 0.5*A_HOMING_REPEATABILITY:
         self.status['a_homing']['pass'] = False
         return False
       else:
@@ -2309,7 +2310,7 @@ class CalibManager:
 
     diff = result['max'] - result['min']
     self.spec['b_homing_repeatability']['val'] = diff
-    if diff > ANGULAR_HOMING_REPEATABILITY:
+    if diff > B_HOMING_REPEATABILITY:
       self.spec['b_homing_repeatability']['pass'] = False
       self.status['spec_failure'] = True
       return False
@@ -2331,7 +2332,7 @@ class CalibManager:
       max_err = max(abs(max_b), abs(min_b))
       self.status['b_homing']['repeatability'] = diff
       self.status['b_homing']['max_err'] = max_err
-      if diff > ANGULAR_HOMING_REPEATABILITY or max_err > 0.5*ANGULAR_HOMING_REPEATABILITY:
+      if diff > B_HOMING_REPEATABILITY or max_err > 0.5*B_HOMING_REPEATABILITY:
         self.status['b_homing']['pass'] = False
         return False
       else:
