@@ -1166,8 +1166,8 @@ class CalibManager:
       if self.client and self.client.is_connected():
         return True
     except Exception as e:
-      logger.error("disconnect e: %s" % e)
-    
+      logger.error("Exception in connect_to_cmm during check for existing connection. Attempting to connect next. Exception is: %s" % e)
+
     try:
       self.client = Client(ADDRESS_CMM, PORT_IPP)
       await self.client.connect()
@@ -1252,7 +1252,7 @@ class CalibManager:
       await self.client.SetCoordSystem("PartCsy").complete()
       return True
     except Exception as ex:
-      print("exception %s" % str(ex))
+      logger.error("set_part_csy exception %s" % str(ex))
       raise ex
 
   async def set_cmm_csy(self, csy):
@@ -1261,7 +1261,7 @@ class CalibManager:
       await self.client.SetCoordSystem("PartCsy").complete()
       return True
     except Exception as ex:
-      print("exception %s" % str(ex))
+      logger.error("set_cmm_csy exception %s" % str(ex))
       raise ex
 
 
@@ -1350,8 +1350,8 @@ class CalibManager:
         L_bracket_right_face.addPoint(pt.x, pt.y, pt.z)
       return True
     except Exception as ex:
-      logger.debug("exception %s" % str(ex))
-      return err_msg("CMM calibration halting, error in %s : %s" % Stages.PROBE_MACHINE_POS, ex)
+      logger.debug("probe_machine_pos exception %s" % str(ex))
+      raise ex
 
 
   async def setup_part_csy(self):
@@ -1541,7 +1541,7 @@ class CalibManager:
         logger.error("probe_fixture_ball_pos fit sphere exception %s" % str(ex))
         raise ex
     except Exception as ex:
-      logger.error("exception %s" % str(ex))
+      logger.error("probe_fixture_ball_pos exception %s" % str(ex))
       raise ex
 
 
@@ -1629,9 +1629,8 @@ class CalibManager:
         self.add_fitted_feature(FEAT_SPINDLE_POS_SPHERE, {'pos': pos, 'radius': radius}, Stages.PROBE_SPINDLE_POS)
         return True
       except Exception as ex:
-        logger.debug("exception %s" % str(ex))
+        logger.debug("probe_spindle_pos exception %s" % str(ex))
         raise ex
-        # await self.client.disconnect()
 
 
   async def find_b_cor(self):
@@ -1755,9 +1754,8 @@ class CalibManager:
       fixture_top_face.addPoint(*pt)
       return True
     except Exception as ex:
-      print("exception %s" % str(ex))
+      logger.error("probe_top_plane exception %s" % str(ex))
       raise ex
-      # await self.client.disconnect()
 
   async def probe_fixture_ball(self, y_pos_v2, feature):
     try:
@@ -2158,11 +2156,8 @@ class CalibManager:
 
       return True
     except Exception as ex:
-      msg = "Exception in PROBE_A %s" % str(ex)
-      logger.debug(msg)
-      return err_msg(msg)
-      # raise ex
-      # await self.client.disconnect()
+      logger.error("probe_a exception %s" % str(ex))
+      raise ex
 
   async def probe_a_home(self, y_pos_v2, a_pos_v2):
     '''
@@ -2172,7 +2167,7 @@ class CalibManager:
       await self.find_pos_a(y_pos_v2, a_pos_v2, is_homing_check=True)
       return True
     except Exception as ex:
-      logger.error("exception %s" % str(ex))
+      logger.error("probe_a_home exception %s" % str(ex))
       raise ex
 
   async def verify_a_home(self):
@@ -2212,7 +2207,7 @@ class CalibManager:
         self.status['a_homing']['pass'] = True
         return True
     except Exception as ex:
-      logger.error("exception %s" % str(ex))
+      logger.error("verify_a_homing exception %s" % str(ex))
       raise ex
 
   async def probe_b(self, feat_name, y_pos_v2, b_pos_v2):
@@ -2290,9 +2285,8 @@ class CalibManager:
 
       return True
     except Exception as ex:
-      print("exception %s" % str(ex))
+      logger.error("probe_b exception %s" % str(ex))
       raise ex
-      # await self.client.disconnect()
 
   async def probe_b_home(self, y_pos_v2, b_pos_v2):
     '''
@@ -2302,7 +2296,7 @@ class CalibManager:
       await self.find_pos_b(y_pos_v2, b_pos_v2, is_homing_check=True)
       return True
     except Exception as ex:
-      logger.error("exception %s" % str(ex))
+      logger.error("probe_b_home exception %s" % str(ex))
       raise ex
 
   async def verify_b_home(self):
@@ -2344,7 +2338,7 @@ class CalibManager:
         self.status['b_homing']['pass'] = True
         return True
     except Exception as ex:
-      logger.error("exception %s" % str(ex))
+      logger.error("verify_b_homing exception %s" % str(ex))
       raise ex
 
 
@@ -2364,10 +2358,9 @@ class CalibManager:
       else:
         probeline_name = "find_a_%+.6f" % a_nominal
       await self.probe_a(probeline_name, y_nominal, a_nominal)
-    except Exception as e:
-      print("Exception while probing a in find_pos_a")
-      print(e)
-      return e
+    except Exception as ex:
+      logger.error("find_pos_a exception (while probing): %s" % str(ex))
+      raise ex
 
     #translate points into POCKET coord sys
     #find best-fit line through points
@@ -2416,10 +2409,9 @@ class CalibManager:
       else:
         self.add_state('feat_name_last_find_a_proj', proj_probeline_name, Stages.CHARACTERIZE_A)
       return a_pos
-    except Exception as e:
-      logger.error("Exception while calculating A position")
-      logger.error(e)
-      return e
+    except Exception as ex:
+      logger.error("find_pos_a exception (while calculating A position): %s" % str(ex))
+      raise ex
 
 
   async def find_pos_b(self, y_nominal, b_nominal, is_homing_check=False):
@@ -2438,10 +2430,9 @@ class CalibManager:
       else:
         probeline_name = "find_b_%+.6f" % b_nominal
       await self.probe_b(probeline_name, y_nominal, b_nominal)
-    except Exception as e:
-      print("Exception while probing b in find_pos_b")
-      print(e)
-      return e
+    except Exception as ex:
+      logger.error("find_pos_b exception (while probing): %s" % str(ex))
+      raise ex
 
     #translate projected points into POCKET coord sys
     #find best-fit line through projected points
@@ -2483,10 +2474,9 @@ class CalibManager:
       else:
         self.add_state('feat_name_last_find_b_proj', proj_probeline_name, Stages.CHARACTERIZE_B)
       return b_pos
-    except Exception as e:
-      logger.error("Exception while calculating B position")
-      logger.error(e)
-      raise e
+    except Exception as ex:
+      logger.error("find_pos_b exception (while calculating B position): %s" % str(ex))
+      raise ex
 
 
   async def set_tool_probe_z(self, tool_probe_z):
@@ -2541,10 +2531,9 @@ class CalibManager:
       if dir_z_axis_partcsy[0] < 0:
         dir_z_axis_partcsy = -1*dir_z_axis_partcsy
       self.add_fitted_feature('z_line_real', {'pt': z_point_real, 'norm': dir_z_axis_partcsy}, Stages.SETUP_CNC_CSY)
-    except Exception as e:
-      logger.error(str(e))
-      raise e
-
+    except Exception as ex:
+      logger.error("setup_cnc_csy exception (while defining z line): %s" % str(ex))
+      raise ex
 
     '''
     Use Y positions to define a line
@@ -2569,9 +2558,9 @@ class CalibManager:
       if dir_y_axis_partcsy[2] > 0:
         dir_y_axis_partcsy = -1*dir_y_axis_partcsy
       self.add_fitted_feature('y_line_real', {'pt': pos_y_line, 'norm': dir_y_axis_partcsy}, Stages.SETUP_CNC_CSY)
-    except Exception as e:
-      logger.error(str(e))
-      raise e
+    except Exception as ex:
+      logger.error("setup_cnc_csy exception (while defining y line): %s" % str(ex))
+      raise ex
 
     '''
     Use X positions to define a line
@@ -2594,9 +2583,9 @@ class CalibManager:
       if dir_x_axis_partcsy[1] < 0:
         dir_x_axis_partcsy = -1*dir_x_axis_partcsy
       self.add_fitted_feature('x_line_real', {'pt': pos_x_line, 'norm': dir_x_axis_partcsy}, Stages.SETUP_CNC_CSY)
-    except Exception as e:
-      logger.error(str(e))
-      raise e
+    except Exception as ex:
+      logger.error("setup_cnc_csy exception (while defining x line): %s" % str(ex))
+      raise ex
 
     #use results to create coord sys and tranformation matrices
     try:
@@ -2619,11 +2608,12 @@ class CalibManager:
       self.add_state('cmm2cnc', cmm2cnc, Stages.SETUP_CNC_CSY)
       self.save_cnc_csy() 
       return True
-    except Exception as e:
-      logger.error(str(e))
-      raise e
+    except Exception as ex:
+      logger.error("setup_cnc_csy exception (while creating csy): %s" % str(ex))
+      raise ex
 
 
+  #TODO Remove?
   async def calc_a_err(self, a_feat_list, feat_name_suffix, a0_feat_id, nominal_a_0=0.0,  ):
     try:
       """Project the points from A-probing onto a plane defined by X-dir of CNC CSY
@@ -2693,6 +2683,7 @@ class CalibManager:
       raise e
 
 
+  #TODO Remove?
   async def project_b_features(self, b_feat_list):
     try:
       """Project points from B-probing features onto plane defined by CNC CSY Y-axis
@@ -2732,9 +2723,9 @@ class CalibManager:
           proj_pt = pt - (dist * norm)
           proj_feat.addPoint(*proj_pt)
       return proj_feat_list
-    except Exception as e:
-      logger.error(str(e))
-      raise e
+    except Exception as ex:
+      logger.error("project_feats_to_plane exception: %s" % str(ex))
+      raise ex
 
 
   def calc_b_results(self, b_feat_list, feat_name_suffix, home_err, b0_dir, feat_b_circle):
@@ -2786,10 +2777,9 @@ class CalibManager:
         feat_b_circle.addPoint(intersect_pos[0], intersect_pos[1], 0)
       
       return results
-
-    except Exception as e:
-      logger.error(str(e))
-      raise e
+    except Exception as ex:
+      logger.error("calc_b_results exception: %s" % str(ex))
+      raise ex
 
 
   def calc_a_results(self, a_feat_list, feat_name_suffix, home_err, a0_dir, feat_a_circle):
@@ -2837,9 +2827,9 @@ class CalibManager:
 
       return results
 
-    except Exception as e:
-      logger.error(str(e))
-      raise e
+    except Exception as ex:
+      logger.error("calc_a_results exception: %s" % str(ex))
+      raise ex
 
 
   async def calc_b_err(self, b_feat_list, feat_name_suffix, b0_feat_id, nominal_b_0=0.0,  ):
@@ -2907,9 +2897,9 @@ class CalibManager:
 
       return b_err_list
 
-    except Exception as e:
-      logger.error(str(e))
-      raise e
+    except Exception as ex:
+      logger.error("calc_b_err exception: %s" % str(ex))
+      raise ex
 
 
   async def calc_calib(self):
@@ -2970,8 +2960,9 @@ class CalibManager:
       # print('rot_mat')
       # print(rot_mat)
 
-    except Exception as e:
-      print(e)
+      except Exception as ex:
+        logger.error("calc_calib exception (while z results): %s" % str(ex))
+        raise ex
 
 
     '''
@@ -2992,10 +2983,9 @@ class CalibManager:
       #   print(p2m)
       #   print("machine 2 pocketnc matrix")
       #   print(cmm2cnc)
-    except Exception as e:
-      print('Exception while constructing coordinate system')
-      logger.error(e)
-      raise e
+    except Exception as ex:
+      logger.error("calc_calib exception (while constructing coordinate system): %s" % str(ex))
+      raise ex
 
     '''
     B results
@@ -3122,9 +3112,9 @@ class CalibManager:
       logger.debug(bestAlgo)
       logger.debug(self.b_comp)
 
-    except Exception as e:
-      print(e)
-      return e
+    except Exception as ex:
+      logger.error("calc_calib exception (in b results): %s" % str(ex))
+      raise ex
 
     '''
     A results
@@ -3256,9 +3246,9 @@ class CalibManager:
       logger.debug(err)
       logger.debug(self.a_comp)
 
-    except Exception as e:
-      print(e)
-      return e
+    except Exception as ex:
+      logger.error("calc_calib exception (in a results): %s" % str(ex))
+      raise ex
 
     '''
     Linear Axes
@@ -3380,13 +3370,9 @@ class CalibManager:
       print("x offset err")
       print(x_offset_for_dir_z_to_intersect_cor)
       self.offsets['x'] = self.active_offsets['x'] - (x_offset_for_dir_z_to_intersect_cor)/25.4
-    except Exception as e:
-      print(e)
-      return e
-
-    except Exception as e:
-      print(e)
-      return e
+    except Exception as ex:
+      logger.error("calc_calib exception (in linear results): %s" % str(ex))
+      raise ex
 
     '''
     B table offset
@@ -3397,9 +3383,9 @@ class CalibManager:
       dist = np.dot(vec_top_plane_to_a_cor, self.cnc_csy.y_dir)
       self.offsets['b_table'] = dist + FIXTURE_HEIGHT
 
-    except Exception as e:
-      logger.error("calc_calib exception %s" % str(e))
-      raise e
+    except Exception as ex:
+      logger.error("calc_calib exception (in b table offset): %s" % str(ex))
+      raise ex
 
     '''
     probe_sensor_123 offset
@@ -3410,9 +3396,9 @@ class CalibManager:
     try:
       self.offsets['probe_sensor_123'] = 0.8 #self.tool_probe_z - self.tool_Length - 3*25.4 + self.offsets['b_table']
 
-    except Exception as e:
-      logger.error("calc_calib exception %s" % str(e))
-      raise e
+    except Exception as ex:
+      logger.error("calc_calib exception (in probe_sensor_123 results): %s" % str(ex))
+      raise ex
 
     return True
 
@@ -3435,9 +3421,9 @@ class CalibManager:
       with open( os.path.join(RESULTS_DIR, 'b.comp'), 'w') as f:
         for p in self.b_comp.pts:
           f.write("%0.6f %0.6f %0.6f\n" % (p[0], p[1], p[1]))
-    except Exception as e:
-      logger.error("write_calib exception %s" % str(e))
-      raise e
+    except Exception as ex:
+      logger.error("write_calib exception (in b results): %s" % str(ex))
+      raise ex
 
     '''
     A results
@@ -3452,9 +3438,9 @@ class CalibManager:
       with open( os.path.join(RESULTS_DIR, 'a.comp'), 'w') as f:
         for p in self.a_comp.pts:
           f.write("%0.6f %0.6f %0.6f\n" % (p[0], p[1], p[1]))
-    except Exception as e:
-      logger.error("write_calib exception %s" % str(e))
-      raise e
+    except Exception as ex:
+      logger.error("write_calib exception (in a results): %s" % str(ex))
+      raise ex
 
     '''
     Writing CalibrationOverlay
@@ -3487,9 +3473,9 @@ class CalibManager:
           ini.set_parameter(new_overlay_data, "TOOL_PROBE", "PROBE_SENSOR_123_OFFSET", self.offsets["probe_sensor_123"])
       ini.write_ini_data(new_overlay_data, NEW_OVERLAY_FILENAME)
 
-    except Exception as e:
-      print(e)
-      return e
+    except Exception as ex:
+      logger.error("write_calib exception (while writing overlay): %s" % str(ex))
+      raise ex
 
     """
     Copy files to POCKETNC_VAR_DIR
@@ -3500,11 +3486,9 @@ class CalibManager:
         curr_path = os.path.join(RESULTS_DIR, f)
         dest_path = os.path.join(POCKETNC_VAR_DIR, f)
         os.popen('cp %s %s' % (curr_path, dest_path))
-    except Exception as e:
-      print(e)
-      return str(e)
-
-
+    except Exception as ex:
+      logger.error("write_calib exception (while copying files to POCKETNC_VAR_DIR): %s" % str(ex))
+      raise ex
     return True
 
 
@@ -3530,10 +3514,9 @@ class CalibManager:
       self.fitted_features['fixture_top_face'] = {'pt': top_plane_pt, 'norm': top_plane_norm}
       self.load_stage_progress(Stages.SETUP_CNC_CSY, is_performing_stage=False)
       return True
-    except Exception as e:
-      msg = "Exception in setup_verify %s" % str(e)
-      logger.debug(msg)
-      return err_msg(msg)
+    except Exception as ex:
+      logger.error("setup_verify exception: %s" % str(ex))
+      raise ex
 
 
   async def calc_verify(self):
@@ -3584,10 +3567,9 @@ class CalibManager:
       logger.debug("Got verify B err_table")
       logger.debug(b_results)
       self.b_ver_err = b_results
-
-    except Exception as e:
-      print(e)
-      return e
+    except Exception as ex:
+      logger.error("calc_verify exception (b results): %s" % str(ex))
+      raise ex
 
     '''
     A results
@@ -3614,10 +3596,9 @@ class CalibManager:
       logger.debug("Got verify A err_table")
       logger.debug(a_results)
       self.a_ver_err = a_results
-
-    except Exception as e:
-      print(e)
-      return e
+    except Exception as ex:
+      logger.error("calc_verify exception (a results): %s" % str(ex))
+      raise ex
 
     return True
 
@@ -3650,9 +3631,9 @@ class CalibManager:
       with open( os.path.join(RESULTS_DIR, 'ver_b.err'), 'w') as f:
         for p in self.b_ver_err:
           f.write("%0.6f %0.6f\n" % (p[0], p[1]))
-    except Exception as e:
-      logger.error("write_calib exception %s" % str(e))
-      raise e
+    except Exception as ex:
+      logger.error("write_verify exception (writing b): %s" % str(ex))
+      raise ex
 
     '''
     A results
@@ -3661,9 +3642,9 @@ class CalibManager:
       with open( os.path.join(RESULTS_DIR, 'ver_a.err'), 'w') as f:
         for p in self.a_ver_err:
           f.write("%0.6f %0.6f\n" % (p[0], p[1]))
-    except Exception as e:
-      logger.error("write_calib exception %s" % str(e))
-      raise e
+    except Exception as ex:
+      logger.error("write_verify exception (writing a): %s" % str(ex))
+      raise ex
 
     '''
     Linear Axes
