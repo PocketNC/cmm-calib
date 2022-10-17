@@ -1115,7 +1115,8 @@ class CalibManager:
         #putting this in an if statement because maybe some steps will be run again 
         #AFTER their 'normal' stage is completed
         self.stages_completed[str(stage_for_step)[len("Stages."):]] = did_stage_complete
-        #dirty hack, making special case for SETUP_VERIFY. PROBE_A and PROBE_B need SETUP_CNC_CSY.
+        #dirty hack, making special case for SETUP_VERIFY. Steps PROBE_A and PROBE_B have Stage.SETUP_CNC_CSY as prereq. 
+        #In SETUP_VERIFY, the cnc csy is reloaded from file, and then applied to CMM
         if step is Steps.SETUP_VERIFY:
           self.stages_completed[str(Stages.SETUP_CNC_CSY)[len("Stages."):]] = True
         
@@ -2960,10 +2961,9 @@ class CalibManager:
       # rot_mat = np.matmul(D_MAT, affine_mat_inv)
       # print('rot_mat')
       # print(rot_mat)
-
-      except Exception as ex:
-        logger.error("calc_calib exception (while z results): %s" % str(ex))
-        raise ex
+    except Exception as ex:
+      logger.error("calc_calib exception (while z results): %s" % str(ex))
+      raise ex
 
 
     '''
