@@ -44,6 +44,7 @@ PORT_IPP = 1294
 
 POCKETNC_VAR_DIR = os.environ.get('POCKETNC_VAR_DIRECTORY')
 RESULTS_DIR = os.path.join(POCKETNC_VAR_DIR, 'calib')
+CALIB_RESULTS_DIR = os.path.join(RESULTS_DIR, 'results')
 if not os.path.exists(RESULTS_DIR):
     os.makedirs(RESULTS_DIR)
 NEW_OVERLAY_FILENAME = os.path.join(RESULTS_DIR, "CalibrationOverlay.inc")
@@ -406,6 +407,8 @@ B_PROBE_END_TRIGGER = 356
 LINEAR_HOMING_REPEATABILITY = 0.001 * 25.4 # 0.001 inches, 0.0254 mm
 B_HOMING_REPEATABILITY = 0.04 # degrees
 A_HOMING_REPEATABILITY = 0.08 # degrees
+SPEC_ANGULAR_ACCURACY = 0.05 # degrees
+SPEC_LINEAR_ACCURACY = 0.001 #Placeholder, we don't actually check this (yet)
 
 V2_10_PROPS = {
   'A_MIN': -25,
@@ -502,7 +505,7 @@ SPECS = [
   'b_runout',
   'b_comp_max_err', 'a_comp_max_err',
   'x_home_err', 'y_home_err', 'z_home_err', 'a_home_err', 'b_home_err',
-  'b_max_err', 'y_max_err'
+  'b_max_err', 'a_max_err'
 ]
 
 SPEC_DICT = { k: gen_spec_item() for k in SPECS }
@@ -2769,7 +2772,7 @@ class CalibManager:
           #the last B-probe is at nominal 360
           line_angle_rel_0 = line_angle_rel_0 + 360
         true_nominal_pos = nominal_pos - home_err
-        err = line_angle_rel_0 - true_nominal_pos
+        err = true_nominal_pos - line_angle_rel_0
         results.append((true_nominal_pos, err))
         fit_lines_2d.append((np.array([b_pt[0], b_pt[1]]), np.array([b_dir[0], b_dir[1]])))
       
@@ -2818,7 +2821,7 @@ class CalibManager:
         line_angle_rel_0 = -1*angle_between_ccw_2d(a0_dir, a_dir_transformed_2d)
         nominal_pos = float(feat_name[len(feat_name_suffix):-len('_proj')])
         true_nominal_pos = nominal_pos - home_err
-        err = line_angle_rel_0 - true_nominal_pos
+        err = true_nominal_pos - line_angle_rel_0
         results.append((true_nominal_pos, err))
         fit_lines_2d.append((np.array([a_pt[0], a_pt[2]]), np.array([a_dir[0], a_dir[2]])))
       
@@ -3478,14 +3481,29 @@ class CalibManager:
       logger.error("write_calib exception (while writing overlay): %s" % str(ex))
       raise ex
 
+    
+    """
+    Copy files to calib results dir
+    """
+    try:
+      # for f in ['a.comp.raw', 'b.comp.raw', 'CalibrationOverlay.inc']:
+      for f in ['a.comp.raw', 'b.comp, 'CalibrationOverlay.inc']:
+        curr_path = os.path.join(RESULTS_DIR, f)
+        dest_f = f[:-4] if f.endswith('.raw') else f
+        dest_path = os.path.join(CALIB_RESULTS_DIR, dest_f)
+        os.popen('cp %s %s' % (curr_path, dest_path))
+    except Exception as ex:
+      logger.error("write_calib exception (while copying files to POCKETNC_VAR_DIR): %s" % str(ex))
+      raise ex
+
     """
     Copy files to POCKETNC_VAR_DIR
     """
     try:
       for f in ['a.comp.raw', 'b.comp.raw', 'CalibrationOverlay.inc']:
-        f = f[:-4] if f.endswith('.raw') else f
         curr_path = os.path.join(RESULTS_DIR, f)
-        dest_path = os.path.join(POCKETNC_VAR_DIR, f)
+        dest_f = f[:-4] if f.endswith('.raw') else f
+        dest_path = os.path.join(POCKETNC_VAR_DIR, dest_f)
         os.popen('cp %s %s' % (curr_path, dest_path))
     except Exception as ex:
       logger.error("write_calib exception (while copying files to POCKETNC_VAR_DIR): %s" % str(ex))
@@ -3567,7 +3585,16 @@ class CalibManager:
       logger.debug(feat_b_verify_circle.average())
       logger.debug("Got verify B err_table")
       logger.debug(b_results)
+      b_max_abs_err_pos = 0
+      b_max_abs_err = 0
       self.b_ver_err = b_results
+      for (pos, err) in b_results:
+        if abs(err) > b_max_abs_err:
+          b_max_abs_err = abs(err)
+          b_max_err_pos = pos
+      self.spec['b_max_err']['val'] = b_max_abs_err
+      b_in_spec = b_max_abs_err < SPEC_ANGULAR_ACCURACY:
+      self.spec['b_max_err']['pass'] = b_in_spec
     except Exception as ex:
       logger.error("calc_verify exception (b results): %s" % str(ex))
       raise ex
@@ -3596,11 +3623,24 @@ class CalibManager:
       logger.debug(feat_a_circle.average())
       logger.debug("Got verify A err_table")
       logger.debug(a_results)
+      a_max_abs_err_pos = 0
+      a_max_abs_err = 0
       self.a_ver_err = a_results
+      for (pos, err) in a_results:
+        if abs(err) > a_max_abs_err:
+          a_max_abs_err = abs(err)
+          a_max_err_pos = pos
+      self.spec['a_max_err']['val'] = a_max_abs_err
+      a_in_spec = a_max_abs_err < SPEC_ANGULAR_ACCURACY:
+      self.spec['a_max_err']['pass'] = a_in_spec
     except Exception as ex:
       logger.error("calc_verify exception (a results): %s" % str(ex))
       raise ex
-
+    
+    #do not return False here when spec fails
+    #unlike some earlier stages that perform a spec check
+    #because we want to run stage write_verify either way
+    self.status['spec_failure'] = (not a_in_spec) and (not b_in_spec)
     return True
 
 
