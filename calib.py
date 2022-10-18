@@ -3298,7 +3298,7 @@ class CalibManager:
     """
     try:
       # for f in ['a.comp.raw', 'b.comp.raw', 'CalibrationOverlay.inc']:
-      for f in ['a.comp.raw', 'b.comp, 'CalibrationOverlay.inc']:
+      for f in ['a.comp.raw', 'b.comp', 'CalibrationOverlay.inc']:
         curr_path = os.path.join(RESULTS_DIR, f)
         dest_f = f[:-4] if f.endswith('.raw') else f
         dest_path = os.path.join(CALIB_RESULTS_DIR, dest_f)
@@ -3404,7 +3404,7 @@ class CalibManager:
           b_max_abs_err = abs(err)
           b_max_err_pos = pos
       self.spec['b_max_err']['val'] = b_max_abs_err
-      b_in_spec = b_max_abs_err < SPEC_ANGULAR_ACCURACY:
+      b_in_spec = b_max_abs_err < SPEC_ANGULAR_ACCURACY
       self.spec['b_max_err']['pass'] = b_in_spec
     except Exception as ex:
       logger.error("calc_verify exception (b results): %s" % str(ex))
@@ -3442,7 +3442,7 @@ class CalibManager:
           a_max_abs_err = abs(err)
           a_max_err_pos = pos
       self.spec['a_max_err']['val'] = a_max_abs_err
-      a_in_spec = a_max_abs_err < SPEC_ANGULAR_ACCURACY:
+      a_in_spec = a_max_abs_err < SPEC_ANGULAR_ACCURACY
       self.spec['a_max_err']['pass'] = a_in_spec
     except Exception as ex:
       logger.error("calc_verify exception (a results): %s" % str(ex))
@@ -3451,7 +3451,7 @@ class CalibManager:
     #do not return False here when spec fails
     #unlike some earlier stages that perform a spec check
     #because we want to run stage write_verify either way
-    self.status['spec_failure'] = (not a_in_spec) and (not b_in_spec)
+    self.status['spec_failure'] = (not a_in_spec) or (not b_in_spec)
     return True
 
 
