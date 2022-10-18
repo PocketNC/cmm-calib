@@ -3234,6 +3234,13 @@ class CalibManager:
         for p in self.b_err:
           f.write("%0.6f %0.6f %0.6f\n" % (p[0], -p[1], -p[1]))
       with open( os.path.join(RESULTS_DIR, 'b.comp'), 'w') as f:
+        pts = [ p for p in self.b_comp.pts ]
+        for cycles in range(1,29):
+          for p in pts:
+            f = (p[0]+360*cycles, p[1])
+            r = (p[0]-360*cycles, p[1])
+            self.b_comp.insert(f)
+            self.b_comp.insert(r)
         for p in self.b_comp.pts:
           f.write("%0.6f %0.6f %0.6f\n" % (p[0], p[1], p[1]))
     except Exception as ex:
