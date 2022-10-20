@@ -1190,7 +1190,7 @@ class CalibManager:
       await routines.ensure_homed(self.client)
       await routines.ensure_tool_loaded(self.client, "Component_3.1.50.4.A0.0-B0.0")
       await self.client.SetProp("Tool.GoToPar.Speed(500)").ack()
-      await self.client.SetProp("Tool.GoToPar.Accel(250)").ack()
+      await self.client.SetProp("Tool.GoToPar.Accel(450)").ack()
       await self.client.SetCsyTransformation("PartCsy, 0,0,0,0,0,0").complete()
       # await self.client.SetCsyTransformation("MachineCsy, 0,0,0,0,0,0").complete()
       await self.client.SetCoordSystem("MachineCsy").complete()
@@ -3233,18 +3233,31 @@ class CalibManager:
         for p in self.b_err:
           f.write("%0.6f %0.6f %0.6f\n" % (p[0], -p[1], -p[1]))
       with open( os.path.join(RESULTS_DIR, 'b.comp'), 'w') as f:
-        pts = [ p for p in self.b_comp.pts ]
+        #remove the 0 and 360 points from cycles because they result in duplicated values, which causes error
+        #probably the 360 point should be included.
+        #0 point should have negligible error (it gets accounted for in home offset error) and can be left out
+        # pts = [ p for p in self.b_comp.pts[1:] ]
+        #now including 360 point, with extra try-blocks around each insert
+        pts = [ p for p in self.b_comp.pts[1:-1] ]
         for cycles in range(1,29):
           for p in pts:
-            f = (p[0]+360*cycles, p[1])
-            r = (p[0]-360*cycles, p[1])
-            self.b_comp.insert(f)
-            self.b_comp.insert(r)
+            forward = (p[0]+360*cycles, p[1])
+            reverse = (p[0]-360*cycles, p[1])
+            try:
+              self.b_comp.insert(forward)
+            except:
+              pass
+            try:
+              self.b_comp.insert(reverse)
+            except:
+              pass
         for p in self.b_comp.pts:
           f.write("%0.6f %0.6f %0.6f\n" % (p[0], p[1], p[1]))
     except Exception as ex:
       logger.error("write_calib exception (in b results): %s" % str(ex))
-      raise ex
+      #commented out until i get the range expansion above working
+      # raise ex 
+
 
     '''
     A results
@@ -3293,7 +3306,7 @@ class CalibManager:
           print("Writing %0.6f to PROBE_SENSOR_123_OFFSET" % self.offsets["probe_sensor_123"])
           ini.set_parameter(new_overlay_data, "TOOL_PROBE", "PROBE_SENSOR_123_OFFSET", self.offsets["probe_sensor_123"])
       ini.write_ini_data(new_overlay_data, NEW_OVERLAY_FILENAME)
-
+      logger.debug(self.offsets)
     except Exception as ex:
       logger.error("write_calib exception (while writing overlay): %s" % str(ex))
       raise ex
@@ -3523,4 +3536,8 @@ class CalibManager:
         at height (Y pos) where Z-norm intersects A-CoR
       Find the X-offset needed so Z-norm intersects this point
     '''
+        '''
+    This is the final CalibManager stage. Disconnect from CMM
+    '''
+    await self.disconnect_from_cmm()
     return True
