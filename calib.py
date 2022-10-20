@@ -425,7 +425,7 @@ V2_50_PROPS = {
 }
 
 FIXTURE_OFFSET_B_ANGLE = 225
-OFFSET_B_POS_REL_Z = 45
+OFFSET_B_POS_REL_Z = -135
 OFFSET_B_NEG_REL_Z = 225
 OFFSET_A_REL_Z = 90
 
@@ -2399,7 +2399,7 @@ class CalibManager:
       a_dir_2d_yz = [a_line_translated_dir[1], a_line_translated_dir[2]]
       # a_pos_rel_z = angle_between_ccw_2d(z_norm_2d_xz, a_dir_2d_yz)
       
-      a_pos_rel_z = -1*angle_between_ccw_2d([-1,0], a_dir_2d_yz)
+      a_pos_rel_z = angle_between_ccw_2d([1,0], a_dir_2d_yz)
       # if a_line_translated_dir[1] >= 0:
       # else:
       #   a_pos_rel_z = angle_between_ccw_2d([-1,0], a_dir_2d_yz)
@@ -2457,7 +2457,7 @@ class CalibManager:
       find_b_proj_line = b_line_proj.line()
       vec_find_b_proj = find_b_proj_line[1]
       """make sure the best-fit line is in correct direction
-      In the PartCsy, the X- and Y- components should be negative when probing around B0
+      In the PartCsy, the X- and Y- components should be negative when probing near B0
       """
       if vec_find_b_proj[0] > 0:
         vec_find_b_proj = -1 * vec_find_b_proj
@@ -2467,7 +2467,7 @@ class CalibManager:
       logger.debug(b_line_translated)
 
       b_dir_2d = [b_line_translated[0],b_line_translated[2]]
-      b_pos_rel_z = angle_between_ccw_2d([0,-1], b_dir_2d)
+      b_pos_rel_z = angle_between_ccw_2d(b_dir_2d, [0,1])
       logger.debug("b_pos_rel_z %s" % b_pos_rel_z)
       b_pos = b_pos_rel_z - OFFSET_B_POS_REL_Z
       
@@ -2558,9 +2558,8 @@ class CalibManager:
         y_line.addPoint(*y_pos)
 
       (pos_y_line, dir_y_axis_partcsy) = y_line.line()
-      #in PartCSY, the Z component of Y-axis dir should be negative 
-      #(PartCsy Z-axis is near-parallel to CncCsy Y-axis)
-      if dir_y_axis_partcsy[2] > 0:
+      #in PartCSY, the Z component of Y-axis dir should be positive (PartCsy Z-axis is near-parallel to CncCsy Y-axis)
+      if dir_y_axis_partcsy[2] < 0:
         dir_y_axis_partcsy = -1*dir_y_axis_partcsy
       self.add_fitted_feature('y_line_real', {'pt': pos_y_line, 'norm': dir_y_axis_partcsy}, Stages.SETUP_CNC_CSY)
     except Exception as ex:
@@ -2583,8 +2582,7 @@ class CalibManager:
         x_line.addPoint(*x_pos)
 
       (pos_x_line, dir_x_axis_partcsy) = x_line.line()
-      #in PartCSY, the Y component of X-axis dir should be positive 
-      #(PartCsy Z-axis is near-parallel to CncCsy Y-axis)
+      #in PartCSY, the Y component of X-axis dir should be positive (PartCsy Y-axis is near-parallel to CncCsy X-axis)
       if dir_x_axis_partcsy[1] < 0:
         dir_x_axis_partcsy = -1*dir_x_axis_partcsy
       self.add_fitted_feature('x_line_real', {'pt': pos_x_line, 'norm': dir_x_axis_partcsy}, Stages.SETUP_CNC_CSY)
@@ -2605,13 +2603,12 @@ class CalibManager:
       p2m = np.vstack((p2m_construct.transpose(),[0,0,0,1]))
       cmm2cnc = np.linalg.inv(p2m)
       cnc_csy = Csy(top_plane_pt, dir_x, dir_y, dir_z, None)
-      print(cnc_csy)
       self.add_state('cnc_csy', cnc_csy, Stages.SETUP_CNC_CSY)
       self.add_state('dir_x', dir_x, Stages.SETUP_CNC_CSY)
       self.add_state('dir_y', dir_y, Stages.SETUP_CNC_CSY)
       self.add_state('dir_z', dir_z, Stages.SETUP_CNC_CSY)
       self.add_state('cmm2cnc', cmm2cnc, Stages.SETUP_CNC_CSY)
-      self.save_cnc_csy() 
+      self.save_cnc_csy()
       return True
     except Exception as ex:
       logger.error("setup_cnc_csy exception (while creating csy): %s" % str(ex))
@@ -2763,7 +2760,7 @@ class CalibManager:
           b_dir = -1 * b_dir
         b_dir_transformed = np.matmul(self.cmm2cnc,np.append(b_dir,0))
         b_dir_transformed_2d = np.array([b_dir_transformed[0],b_dir_transformed[2]])
-        line_angle_rel_0 = angle_between_ccw_2d(b0_dir, b_dir_transformed_2d)
+        line_angle_rel_0 = angle_between_ccw_2d(b_dir_transformed_2d, b0_dir)
         nominal_pos = float(feat_name[len(feat_name_suffix):-len('_proj')])
         if line_angle_rel_0 < 0 and nominal_pos > 135:
           #return from angle_between_ccw_2d has range [-180,180]
@@ -2772,7 +2769,8 @@ class CalibManager:
           #the last B-probe is at nominal 360
           line_angle_rel_0 = line_angle_rel_0 + 360
         true_nominal_pos = nominal_pos - home_err
-        err = true_nominal_pos - line_angle_rel_0
+        # err = true_nominal_pos - line_angle_rel_0
+        err = line_angle_rel_0 - true_nominal_pos
         results.append((true_nominal_pos, err))
         fit_lines_2d.append((np.array([b_pt[0], b_pt[1]]), np.array([b_dir[0], b_dir[1]])))
       
@@ -2818,10 +2816,11 @@ class CalibManager:
             a_dir = -1 * a_dir
         a_dir_transformed = np.matmul(self.cmm2cnc,np.append(a_dir,0))
         a_dir_transformed_2d = np.array([a_dir_transformed[1],a_dir_transformed[2]])
-        line_angle_rel_0 = -1*angle_between_ccw_2d(a0_dir, a_dir_transformed_2d)
+        line_angle_rel_0 = -1*angle_between_ccw_2d(a_dir_transformed_2d, a0_dir)
         nominal_pos = float(feat_name[len(feat_name_suffix):-len('_proj')])
         true_nominal_pos = nominal_pos - home_err
-        err = true_nominal_pos - line_angle_rel_0
+        # err = true_nominal_pos - line_angle_rel_0
+        err =  line_angle_rel_0 - true_nominal_pos
         results.append((true_nominal_pos, err))
         fit_lines_2d.append((np.array([a_pt[0], a_pt[2]]), np.array([a_dir[0], a_dir[2]])))
       
