@@ -3313,30 +3313,18 @@ class CalibManager:
 
     
     """
-    Copy files to calib results dir
+    Copy files to POCKETNC_VAR_DIR and CALIB_RESULTS_DIR
     """
     try:
-      # for f in ['a.comp.raw', 'b.comp.raw', 'CalibrationOverlay.inc']:
-      for f in ['a.comp.raw', 'b.comp', 'CalibrationOverlay.inc']:
+      for f in ['a.comp', 'b.comp', 'CalibrationOverlay.inc']:
         curr_path = os.path.join(RESULTS_DIR, f)
         dest_f = f[:-4] if f.endswith('.raw') else f
         dest_path = os.path.join(CALIB_RESULTS_DIR, dest_f)
         os.popen('cp %s %s' % (curr_path, dest_path))
-    except Exception as ex:
-      logger.error("write_calib exception (while copying files to POCKETNC_VAR_DIR): %s" % str(ex))
-      raise ex
-
-    """
-    Copy files to POCKETNC_VAR_DIR
-    """
-    try:
-      for f in ['a.comp.raw', 'b.comp.raw', 'CalibrationOverlay.inc']:
-        curr_path = os.path.join(RESULTS_DIR, f)
-        dest_f = f[:-4] if f.endswith('.raw') else f
         dest_path = os.path.join(POCKETNC_VAR_DIR, dest_f)
         os.popen('cp %s %s' % (curr_path, dest_path))
     except Exception as ex:
-      logger.error("write_calib exception (while copying files to POCKETNC_VAR_DIR): %s" % str(ex))
+      logger.error("write_calib exception (while copying files): %s" % str(ex))
       raise ex
     return True
 
