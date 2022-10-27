@@ -59,7 +59,13 @@ calibrationOverlayFileName = os.path.join(POCKETNC_VAR_DIR, "CalibrationOverlay.
 iniFileName = os.path.join(POCKETNC_VAR_DIR, "PocketNC.ini")
 aAngleFileName = os.path.join(POCKETNC_VAR_DIR, "calib/a-angle.txt")
 bAngleFileName = os.path.join(POCKETNC_VAR_DIR, "calib/b-angle.txt")
-xyzFileName = os.path.join(POCKETNC_VAR_DIR, "calib/xyz.txt")
+xyzFileName = os.path.join(POCKETNC_VAR_DIR, "xyz.txt")
+
+def readXYZ():
+  with open(xyzFileName, "r") as xyzFile:
+    (x,y,z) = [ float(n) for n in xyzFile.read().split(",") ]
+
+  return (x,y,z)
 
 aCompFileName = os.path.join(POCKETNC_VAR_DIR, "calib/a.comp")
 bCompFileName = os.path.join(POCKETNC_VAR_DIR, "calib/b.comp")
@@ -124,6 +130,21 @@ def angle_between_ccw_2d(v1,v2):
   det = v1[0] * v2[1] - v1[1] * v2[0]
   return math.atan2(det,dot) * 180/math.pi
 
+def line_plane_intersect(dir_line, pt_line, dir_plane, pt_plane):
+  dir_line = np.array(dir_line)
+  dir_line = np.array(pt_line)
+  dir_line = np.array(dir_plane)
+  dir_line = np.array(pt_plane)
+
+  norm_dot_vec = np.dot(dir_plane, dir_line)
+  if( abs(norm_dot_vec) < EPSILON):
+    raise CalibException("line and plane do not intersect")
+
+  w = pt_line - pt_plane
+  si = -np.dot(dir_plane, w) / norm_dot_vec
+  pos_intersect = w + si * dir_line + pt_plane
+  return pos_intersect
+
 class CalibException(Exception):
   pass
 
@@ -175,6 +196,9 @@ class Steps(Enum):
   #need better names, but right now the HOMING steps are ran in Verification, after home offsets have been found and set
   VERIFY_A_HOMING = auto()
   VERIFY_B_HOMING = auto()
+  PROBE_SPINDLE_AT_TOOL_PROBE = auto()
+  PROBE_FIXTURE_PLANE_A90 = auto()
+  TOOL_PROBE_OFFSET = auto()
   PROBE_X = auto() 
   PROBE_Y = auto()
   PROBE_Z = auto()
@@ -232,6 +256,7 @@ class Stages(Enum):
   '''verification stages'''
   RESTART_CNC: auto()
   SETUP_VERIFY = auto()
+  TOOL_PROBE_OFFSET = auto()
   VERIFY_A_HOMING = auto()
   VERIFY_B_HOMING = auto()
   VERIFY_A = auto()
@@ -316,6 +341,7 @@ STAGE_PREREQS = {
   Stages.CHARACTERIZE_B: [Stages.SETUP_CNC_CSY],
   # Stages.WRITE_CALIB: [Stages.CHARACTERIZE_A, Stages.CHARACTERIZE_A],
 
+  Stages.TOOL_PROBE_OFFSET: [Stages.SETUP_VERIFY],
   Stages.VERIFY_A: [Stages.SETUP_VERIFY],
   Stages.VERIFY_B: [Stages.SETUP_VERIFY],
   Stages.WRITE_VERIFY: [Stages.VERIFY_A, Stages.VERIFY_B],
@@ -364,6 +390,8 @@ STATE_ERROR = 'ERROR'
 STATE_FAIL = 'FAIL'
 STATE_PAUSE = 'PAUSE'
 STATE_STOP = 'STOP'
+
+EPSILON = 1e-6
 
 Z_CLEARANCE_PART_CSY = 250
 
@@ -459,8 +487,9 @@ waypoints_from_pocket_origin = {
   'a_rot_cent_approx': float3(-63.10, -46.0, -6.93),
   'z_home_50': float3(42.5, -49.25, -68.83),
   'z_home_10': float3(72.0, -50.50, -68.83),
-  'fixture_ball': float3(-94.0, -114.7, -123.4)
-  # 'fixture_ball': float3(-94.4, -107.0, -123.4)
+  'fixture_ball': float3(-94.0, -114.7, -123.4),
+  # 'fixture_ball': float3(-94.4, -107.0, -123.4),
+  'probe_fixture_plane_a90': float3(-56.5, -93.5, -41.5)
 }
 
 waypoints_table_center = {
@@ -622,6 +651,7 @@ class CalibManager:
     self.active_offsets['z'] =  float(ini.get_parameter(self.ini_data, "JOINT_2", "HOME_OFFSET")["values"]["value"])
     self.active_offsets['a'] =  float(ini.get_parameter(self.ini_data, "JOINT_3", "HOME_OFFSET")["values"]["value"])
     self.active_offsets['b'] =  float(ini.get_parameter(self.ini_data, "JOINT_4", "HOME_OFFSET")["values"]["value"])
+    self.active_offsets['b_table'] =  float(ini.get_parameter(self.ini_data, "TOOL_PROBE", "PROBE_B_TABLE_OFFSET")["values"]["value"])
 
     self.a_err = []
     self.b_err = []
@@ -981,6 +1011,12 @@ class CalibManager:
         return (self.std_stage_complete_check(ret), Stages.SETUP_CNC_CSY)
       elif step is Steps.PROBE_FIXTURE_BALL_POS:
         return (self.std_stage_complete_check(ret), Stages.PROBE_FIXTURE_BALL_POS)
+      elif step is Steps.PROBE_SPINDLE_AT_TOOL_PROBE:
+        return (self.std_stage_complete_check(ret), Stages.TOOL_PROBE_OFFSET)
+      elif step is Steps.PROBE_FIXTURE_PLANE_A90:
+        return (self.std_stage_complete_check(ret), Stages.TOOL_PROBE_OFFSET)
+      elif step is Steps.TOOL_PROBE_OFFSET:
+        return (self.std_stage_complete_check(ret), Stages.TOOL_PROBE_OFFSET)
       elif step is Steps.PROBE_MACHINE_POS:
         return (self.std_stage_complete_check(ret), Stages.PROBE_MACHINE_POS)
       elif step is Steps.PROBE_TOP_PLANE:
@@ -1294,63 +1330,63 @@ class CalibManager:
       if self.config['table_slot'] is None:
         #table slot has not been set, raise exception,
         raise CalibException("Quitting VERIFY_MACHINE_POS, table slot has not been set")
-      await self.client.GoTo("Z(250)").complete()
-      await self.client.SetProp("Tool.PtMeasPar.Approach(10)").complete()
-      await self.client.SetProp("Tool.PtMeasPar.Search(15)").complete()
-      await self.client.SetProp("Tool.PtMeasPar.Retract(-1)").complete()
-      await self.client.SetProp("Tool.PtMeasPar.HeadTouch(0)").complete()
+      await self.client.GoTo("Z(250)").ack()
+      await self.client.SetProp("Tool.PtMeasPar.Approach(10)").send()
+      await self.client.SetProp("Tool.PtMeasPar.Search(15)").send()
+      await self.client.SetProp("Tool.PtMeasPar.Retract(-1)").send()
+      await self.client.SetProp("Tool.PtMeasPar.HeadTouch(0)").send()
       await self.client.GoTo("Tool.A(0),Tool.B(0)").complete()
 
       #ensure A-backing plate and B-trunnion are not raised above L-bracket by sweeping probe tip through area
       #sweeping potential location of B-motor when A approx 90 and Y raised near limit
-      await self.client.GoTo(float3(-180, -155, 90).ToXYZString()).complete()
-      await self.client.GoTo(float3(-40, -155, 90).ToXYZString()).complete()
-      await self.client.GoTo(float3(-40, -155, 20).ToXYZString()).complete()
-      await self.client.GoTo(float3(-40, 40, 20).ToXYZString()).complete()
+      await self.client.GoTo(float3(-180, -155, 90).ToXYZString()).ack()
+      await self.client.GoTo(float3(-40, -155, 90).ToXYZString()).ack()
+      await self.client.GoTo(float3(-40, -155, 20).ToXYZString()).ack()
+      await self.client.GoTo(float3(-40, 40, 20).ToXYZString()).ack()
 
       # L-bracket top face
       approachPos = float3(0,0,10)
-      await self.client.GoTo(approachPos.ToXYZString()).complete()
+      await self.client.GoTo(approachPos.ToXYZString()).ack()
 
       measPos = float3(0,2,0)
       L_bracket_top_face = self.add_feature('L_bracket_top_face', Stages.PROBE_MACHINE_POS)
-      ptMeas = await self.client.PtMeas("%s,IJK(0,0,1)" % (measPos.ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,0,1)" % (measPos.ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       L_bracket_top_face.addPoint(pt.x, pt.y, pt.z)
 
       measPos = float3(-20,0,0)
-      ptMeas = await self.client.PtMeas("%s,IJK(0,0,1)" % (measPos.ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,0,1)" % (measPos.ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       L_bracket_top_face.addPoint(pt.x, pt.y, pt.z)
 
       measPos = float3(-30,12,0)
-      ptMeas = await self.client.PtMeas("%s,IJK(0,0,1)" % (measPos.ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,0,1)" % (measPos.ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       L_bracket_top_face.addPoint(pt.x, pt.y, pt.z)
 
       # L-bracket back face
       L_bracket_back_face = self.add_feature('L_bracket_back_face', Stages.PROBE_MACHINE_POS)
       approach_pos = float3(-35, 30, 10)
-      await self.client.GoTo(approach_pos.ToXYZString()).complete()
+      await self.client.GoTo(approach_pos.ToXYZString()).ack()
       approach_pos = approach_pos + float3(0, 0, -20)
-      await self.client.GoTo(approach_pos.ToXYZString()).complete()
+      await self.client.GoTo(approach_pos.ToXYZString()).ack()
       for i in range(3):
         meas_pos = approach_pos + float3(i * 15, -15, 0)
-        pt_meas = await self.client.PtMeas("%s,IJK(0,1,0)" % (meas_pos.ToXYZString())).complete()
+        pt_meas = await self.client.PtMeas("%s,IJK(0,1,0)" % (meas_pos.ToXYZString())).data()
         pt = float3.FromXYZString(pt_meas.data_list[0])
         L_bracket_back_face.addPoint(pt.x, pt.y, pt.z)
 
       #back-to-side transition
       approach_pos = float3(25,30,-10)
-      await self.client.GoTo(approach_pos.ToXYZString()).complete()
+      await self.client.GoTo(approach_pos.ToXYZString()).ack()
 
       # L-bracket right face
       approach_pos = float3(23,15,-10)
-      await self.client.GoTo(approach_pos.ToXYZString()).complete()
+      await self.client.GoTo(approach_pos.ToXYZString()).ack()
       L_bracket_right_face = self.add_feature('L_bracket_right_face', Stages.PROBE_MACHINE_POS)
       for i in range(3):
         meas_pos = approach_pos + float3(-15, i * -8, 0)
-        pt_meas = await self.client.PtMeas("%s,IJK(1,0,0)" % (meas_pos.ToXYZString())).complete()
+        pt_meas = await self.client.PtMeas("%s,IJK(1,0,0)" % (meas_pos.ToXYZString())).data()
         pt = float3.FromXYZString(pt_meas.data_list[0])
         L_bracket_right_face.addPoint(pt.x, pt.y, pt.z)
       return True
@@ -1550,6 +1586,48 @@ class CalibManager:
       raise ex
 
 
+  async def probe_spindle_at_tool_probe(self):
+    '''
+    Read position of tool probe from file (spindle should already be at that position)
+    Probe spindle at position of last tool probe
+    '''
+    try:
+      feat_name = "spindle_at_tool_probe"
+      feat = self.add_feature(feat_name, Stages.TOOL_PROBE_OFFSET)
+      (x,y,z) = readXYZ()
+      await self.probe_spindle_tip(x, z, feat)
+      return True
+    except Exception as ex:
+      logger.debug("probe_spindle_at_tool_probe exception %s" % str(ex))
+      raise ex
+
+
+  async def tool_probe_offset(self):
+    '''
+    Use results of probe_spindle_at_tool_probe and probe_fixture_plane_a90
+    to calculate the PROBE_SENSOR_123_OFFSET
+    '''
+    try:
+      feat_spindle_at_tool_probe = self.metrologyManager.getActiveFeatureSet().getFeature( self.feature_ids['spindle_at_tool_probe'] )
+      (rad, pos_spindle_at_tool_probe) = feat_spindle_at_tool_probe.sphere()
+      if abs(rad*2 - (Z_BALL_DIA+PROBE_DIA)) > 0.1:
+        raise CalibException("Deviation in best-fit spindle-tip sphere. Diameter %s" % (radius*2))
+      feat_fixture_plane_a90 = self.metrologyManager.getActiveFeatureSet().getFeature( self.feature_ids['fixture_plane_a90'] )
+      (pos_fixture_a90, norm_fixture_a90) = feat_fixture_plane_a90.plane()
+
+      pos_z_intersect_fixture_a90 = line_plane_intersect(self.dir_z, pos_spindle_at_tool_probe, norm_fixture_a90, pos_fixture_a90)
+      pos_z_intersect_fixture_a90_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_z_intersect_fixture_a90,1))
+      pos_spindle_at_tool_probe_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_spindle_at_tool_probe,1))
+
+      # diff_z = pos_spindle_at_tool_probe_cnccsy[2] - pos_z_intersect_fixture_a90_cnccsy[2]
+
+      self.offsets['probe_sensor_123'] = pos_spindle_at_tool_probe_cnccsy[2] - (pos_z_intersect_fixture_a90_cnccsy[2] - (FIXTURE_HEIGHT - self.active_offsets['b_table']) + 3*25.4)
+      logger.debug('Got probe_sensor_123 %s' % self.offsets['probe_sensor_123'])
+      return True
+    except Exception as ex:
+      logger.debug("tool_probe_offset exception %s" % str(ex))
+      raise ex
+
 
   async def probe_spindle_pos(self, x_pos_v2, z_pos_v2):
       '''
@@ -1562,12 +1640,12 @@ class CalibManager:
         if self.config['table_slot'] is None:
           #table slot has not been set, raise exception,
           raise CalibException("Quitting PROBE_SPINDLE_POS, table slot has not been set")
-        await self.client.GoTo("Z(%s)" % Z_CLEARANCE_PART_CSY).complete()
-        await self.client.SetProp("Tool.PtMeasPar.Approach(10)").complete()
-        await self.client.SetProp("Tool.PtMeasPar.Search(100)").complete()
-        await self.client.SetProp("Tool.PtMeasPar.Retract(-1)").complete()
-        await self.client.SetProp("Tool.PtMeasPar.HeadTouch(0)").complete()
-        await self.client.GoTo("Tool.A(0),Tool.B(0)").complete()
+        await self.client.GoTo("Z(%s)" % Z_CLEARANCE_PART_CSY).ack()
+        await self.client.SetProp("Tool.PtMeasPar.Approach(10)").send()
+        await self.client.SetProp("Tool.PtMeasPar.Search(100)").send()
+        await self.client.SetProp("Tool.PtMeasPar.Retract(-1)").send()
+        await self.client.SetProp("Tool.PtMeasPar.HeadTouch(0)").ack()
+        await self.client.GoTo("Tool.A(0),Tool.B(0)").ack()
 
         orig = waypoints['z_home'] + float3(z_pos_v2,x_pos_v2 - 63.5,0)
 
@@ -1575,21 +1653,20 @@ class CalibManager:
           spindle_side_clearance = 22.5
         elif self.model == V2_VARIANT_50:
           spindle_side_clearance = 30
-        
 
         #probe against spindle shaft, approx. 45 mm in the PART_CSY +X direction from typical spindle tip position
-        await self.client.GoTo((orig + float3(45, spindle_side_clearance, 25)).ToXYZString()).complete()
-        await self.client.GoTo((orig + float3(45, spindle_side_clearance, 0)).ToXYZString()).complete()
-        pt_meas = await self.client.PtMeas("%s,IJK(0,1,0)" % ((orig + float3(45, 10, 0)).ToXYZString())).complete()
+        await self.client.GoTo((orig + float3(45, spindle_side_clearance, 25)).ToXYZString()).ack()
+        await self.client.GoTo((orig + float3(45, spindle_side_clearance, 0)).ToXYZString()).ack()
+        pt_meas = await self.client.PtMeas("%s,IJK(0,1,0)" % ((orig + float3(45, 10, 0)).ToXYZString())).data()
         spindle_shaft_pt_1 = float3.FromXYZString(pt_meas.data_list[0])
 
         #up and over shaft
-        await self.client.GoTo((orig + float3(45, spindle_side_clearance, 25)).ToXYZString()).complete()
-        await self.client.GoTo((orig + float3(45, -spindle_side_clearance, 25)).ToXYZString()).complete()
+        await self.client.GoTo((orig + float3(45, spindle_side_clearance, 25)).ToXYZString()).ack()
+        await self.client.GoTo((orig + float3(45, -spindle_side_clearance, 25)).ToXYZString()).ack()
 
         #probe spindle shaft from other side (from PartCsy -Y side, probing in +Y direction)
-        await self.client.GoTo((orig + float3(45, -spindle_side_clearance, 0)).ToXYZString()).complete()
-        pt_meas = await self.client.PtMeas("%s,IJK(0,-1,0)" % ((orig + float3(45, -10, 0)).ToXYZString())).complete()
+        await self.client.GoTo((orig + float3(45, -spindle_side_clearance, 0)).ToXYZString()).ack()
+        pt_meas = await self.client.PtMeas("%s,IJK(0,-1,0)" % ((orig + float3(45, -10, 0)).ToXYZString())).data()
         spindle_shaft_pt_2 = float3.FromXYZString(pt_meas.data_list[0])
 
         # spindle tip Y position should be at mid point of previous two probes
@@ -1597,33 +1674,33 @@ class CalibManager:
         self.add_state('spindle_shaft_y', spindle_shaft_y, Stages.PROBE_SPINDLE_POS)
         
         #now probe along the spindle center line until we hit the tip
-        await self.client.GoTo((orig + float3(-50, -30, 0)).ToXYZString()).complete()
-        await self.client.GoTo(float3(orig.x - 50, self.spindle_shaft_y, orig.z).ToXYZString()).complete()
+        await self.client.GoTo((orig + float3(-50, -30, 0)).ToXYZString()).ack()
+        await self.client.GoTo(float3(orig.x - 50, self.spindle_shaft_y, orig.z).ToXYZString()).ack()
         meas_pos = float3(orig.x, self.spindle_shaft_y, orig.z)
-        pt_meas = await self.client.PtMeas("%s,IJK(-1,0,0)" % (meas_pos.ToXYZString())).complete()
+        pt_meas = await self.client.PtMeas("%s,IJK(-1,0,0)" % (meas_pos.ToXYZString())).data()
         tip_pt = float3.FromXYZString(pt_meas.data_list[0])
         spindle_pos.addPoint(*tip_pt)
 
         #take additional points on spindle tip sphere
         #from +Y (probe in -Y)
         await self.client.GoTo((tip_pt + float3(0, 10, 0)).ToXYZString()).ack()
-        await self.client.GoTo((tip_pt + float3(5, 10, 0)).ToXYZString()).complete()
+        await self.client.GoTo((tip_pt + float3(5, 10, 0)).ToXYZString()).ack()
         meas_pos = tip_pt + float3(5, Z_BALL_DIA/2, 0)
-        pt_meas = await self.client.PtMeas("%s,IJK(0,1,0)" % (meas_pos.ToXYZString())).complete()
+        pt_meas = await self.client.PtMeas("%s,IJK(0,1,0)" % (meas_pos.ToXYZString())).data()
         pt = float3.FromXYZString(pt_meas.data_list[0])
         spindle_pos.addPoint(*pt)
         #from +Z (probe in -Z)
         await self.client.GoTo((tip_pt + float3(5, 10, 5)).ToXYZString()).ack()
         await self.client.GoTo((tip_pt + float3(5, 0, 5)).ToXYZString()).ack()
         meas_pos = tip_pt + float3(5, 0, Z_BALL_DIA/2)
-        pt_meas = await self.client.PtMeas("%s,IJK(0,0,1)" % (meas_pos.ToXYZString())).complete()
+        pt_meas = await self.client.PtMeas("%s,IJK(0,0,1)" % (meas_pos.ToXYZString())).data()
         pt = float3.FromXYZString(pt_meas.data_list[0])
         spindle_pos.addPoint(*pt)
         #from -Y (probe in +Y)
         await self.client.GoTo((tip_pt + float3(5, -10, 5)).ToXYZString()).ack()
         await self.client.GoTo((tip_pt + float3(5, -10, 0)).ToXYZString()).ack()
         meas_pos = tip_pt + float3(5, -Z_BALL_DIA/2, 0)
-        pt_meas = await self.client.PtMeas("%s,IJK(0,-1,0)" % (meas_pos.ToXYZString())).complete()
+        pt_meas = await self.client.PtMeas("%s,IJK(0,-1,0)" % (meas_pos.ToXYZString())).data()
         pt = float3.FromXYZString(pt_meas.data_list[0])
         spindle_pos.addPoint(*pt)
 
@@ -1731,36 +1808,67 @@ class CalibManager:
   async def probe_top_plane(self, y_pos_v2):
     try:
       orig = waypoints['b_rot_cent_approx'] + float3(0,0,(-y_pos_v2 - 63.5))
-      await self.client.GoTo("Tool.Alignment(0,0,1)").complete()
-      await self.client.SetProp("Tool.PtMeasPar.HeadTouch(0)").complete()
-      await self.client.GoTo((orig + float3(0,0,100)).ToXYZString()).complete()
-      await self.client.GoTo((orig + float3(0,0,10)).ToXYZString()).complete()
+      await self.client.GoTo("Tool.Alignment(0,0,1)").send()
+      await self.client.SetProp("Tool.PtMeasPar.HeadTouch(0)").send()
+      await self.client.GoTo((orig + float3(0,0,100)).ToXYZString()).ack()
+      await self.client.GoTo((orig + float3(0,0,10)).ToXYZString()).ack()
 
       fixture_top_face = self.add_feature('fixture_top_face', Stages.PROBE_TOP_PLANE)
 
-      ptMeas = await self.client.PtMeas("%s,IJK(0,0,1)" % ((orig).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,0,1)" % ((orig).ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       fixture_top_face.addPoint(*pt)
 
-      ptMeas = await self.client.PtMeas("%s,IJK(0,0,1)" % ((orig + float3(-25,-5,0)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,0,1)" % ((orig + float3(-25,-5,0)).ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       fixture_top_face.addPoint(*pt)
 
-      ptMeas = await self.client.PtMeas("%s,IJK(0,0,1)" % ((orig + float3(-25,5,0)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,0,1)" % ((orig + float3(-25,5,0)).ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       fixture_top_face.addPoint(*pt)
 
-      ptMeas = await self.client.PtMeas("%s,IJK(0,0,1)" % ((orig + float3(25,5,0)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,0,1)" % ((orig + float3(25,5,0)).ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       fixture_top_face.addPoint(*pt)
       
-      ptMeas = await self.client.PtMeas("%s,IJK(0,0,1)" % ((orig + float3(25,-5,0)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,0,1)" % ((orig + float3(25,-5,0)).ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       fixture_top_face.addPoint(*pt)
       return True
     except Exception as ex:
       logger.error("probe_top_plane exception %s" % str(ex))
       raise ex
+
+
+  async def probe_fixture_plane_a90(self, y_pos_v2):
+    try:
+      orig = waypoints['probe_fixture_plane_a90']
+      await self.client.GoTo((orig + float3(100,0,100)).ToXYZString()).complete()
+      await self.client.GoTo("Tool.A(8),Tool.B(180)").complete()
+
+      await self.client.GoTo((orig + float3(5,0,0)).ToXYZString()).complete()
+      await self.client.SetProp("Tool.PtMeasPar.HeadTouch(1)").complete()
+
+      fixture_plane_a90 = self.add_feature('fixture_plane_a90', Stages.TOOL_PROBE_OFFSET)
+
+      ptMeas = await self.client.PtMeas("%s,IJK(1,0,0)" % ((orig).ToXYZString())).complete()
+      pt = float3.FromXYZString(ptMeas.data_list[0])
+      fixture_plane_a90.addPoint(*pt)
+
+      ptMeas = await self.client.PtMeas("%s,IJK(1,0,0)" % ((orig + float3(0,-3,+3)).ToXYZString())).complete()
+      pt = float3.FromXYZString(ptMeas.data_list[0])
+      fixture_plane_a90.addPoint(*pt)
+
+      await self.client.GoTo("%s,Tool.A(8),Tool.B(180)" % ((orig + float3(5,0,-3)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(1,0,0)" % ((orig + float3(0,0,-3)).ToXYZString())).complete()
+      pt = float3.FromXYZString(ptMeas.data_list[0])
+      fixture_plane_a90.addPoint(*pt)
+
+      return True
+    except Exception as ex:
+      logger.error("probe_fixture_plane_a90 exception %s" % str(ex))
+      raise ex
+
 
   async def probe_fixture_ball(self, y_pos_v2, feature):
     try:
@@ -1771,29 +1879,29 @@ class CalibManager:
 
       await self.client.GoTo("Tool.Alignment(0,0,1,1,0,0)").complete()
       await self.client.GoTo((orig + float3(0,0,25)).ToXYZString()).complete()
-      getCurrPosCmd = await self.client.Get("X(),Y(),Z()").complete()
+      getCurrPosCmd = await self.client.Get("X(),Y(),Z()").data()
       currPos = readPointData(getCurrPosCmd.data_list[0])
 
       #place tip pos +Y from target
       await self.client.GoTo("Tool.A(%s),Tool.B(90)" % (a_angle_probe_contact+5)).complete()
       await self.client.GoTo("Z(%s)" % (currPos.z - 25)).complete()
-      await self.client.SetProp("Tool.PtMeasPar.HeadTouch(1)").complete()
+      await self.client.SetProp("Tool.PtMeasPar.HeadTouch(1)").send()
       await self.client.SetProp("Tool.PtMeasPar.Search(6)").complete()
 
       # probe in -Y dir
-      ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % ((orig + float3(0,contact_radius,0)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % ((orig + float3(0,contact_radius,0)).ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       feature.addPoint(*pt)
 
       # move to -X pos, probe in +X dir
       await self.client.GoTo("Tool.A(%s),Tool.B(180)" % (a_angle_probe_contact+5)).complete()
-      ptMeas = await self.client.PtMeas("%s,IJK(-1,0,0)" % ((orig + float3(-contact_radius,0,0)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(-1,0,0)" % ((orig + float3(-contact_radius,0,0)).ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       feature.addPoint(*pt)
 
       # move to -Y pos, probe in +Y dir
       await self.client.GoTo("Tool.A(%s),Tool.B(270)" % (a_angle_probe_contact+5)).complete()
-      ptMeas = await self.client.PtMeas("%s,IJK(0,-1,0)" % ((orig + float3(0,-contact_radius,0)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,-1,0)" % ((orig + float3(0,-contact_radius,0)).ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       feature.addPoint(*pt) 
 
@@ -1807,19 +1915,19 @@ class CalibManager:
 
       # probe in +Y dir
       await self.client.GoTo("Tool.A(%s),Tool.B(270)" % (a_angle_probe_contact+5)).complete()
-      ptMeas = await self.client.PtMeas("%s,IJK(0,-1,0)" % ((measPos2 + float3(0,-contact_radius,0)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,-1,0)" % ((measPos2 + float3(0,-contact_radius,0)).ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       feature.addPoint(*pt)
 
       # move to -X pos, probe in +X dir
       await self.client.GoTo("Tool.A(%s),Tool.B(180)" % (a_angle_probe_contact+5)).complete()
-      ptMeas = await self.client.PtMeas("%s,IJK(-1,0,0)" % ((measPos2 + float3(-contact_radius,0,0)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(-1,0,0)" % ((measPos2 + float3(-contact_radius,0,0)).ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       feature.addPoint(*pt) 
 
       # move to +Y pos, probe in -Y dir
       await self.client.GoTo("Tool.A(%s),Tool.B(90)" % (a_angle_probe_contact+5)).complete()
-      ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % ((measPos2 + float3(0,contact_radius,0)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % ((measPos2 + float3(0,contact_radius,0)).ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       feature.addPoint(*pt) 
 
@@ -1845,29 +1953,29 @@ class CalibManager:
       #orient tool down and place tip 25 mm above target
       await self.client.GoTo("Tool.Alignment(0,0,1,1,0,0)").complete()
       await self.client.GoTo((orig + float3(0,0,25)).ToXYZString()).complete()
-      getCurrPosCmd = await self.client.Get("X(),Y(),Z()").complete()
+      getCurrPosCmd = await self.client.Get("X(),Y(),Z()").data()
       currPos = readPointData(getCurrPosCmd.data_list[0])
       #place tip pos +Y from target
       await self.client.GoTo("Tool.A(%s),Tool.B(90)" % (a_angle_probe_contact+5)).complete()
       await self.client.GoTo("Z(%s)" % (currPos.z - 25)).complete()
       
-      await self.client.SetProp("Tool.PtMeasPar.HeadTouch(1)").complete()
+      await self.client.SetProp("Tool.PtMeasPar.HeadTouch(1)").send()
       await self.client.SetProp("Tool.PtMeasPar.Search(6)").complete()
 
       # probe in -Y dir
-      ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % ((orig + float3(0,contact_radius,0)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % ((orig + float3(0,contact_radius,0)).ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       feature.addPoint(*pt)
 
       # move to -X pos, probe in +X dir
       await self.client.GoTo("Tool.A(%s),Tool.B(180)" % (a_angle_probe_contact+5)).complete()
-      ptMeas = await self.client.PtMeas("%s,IJK(-1,0,0)" % ((orig + float3(-contact_radius,0,0)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(-1,0,0)" % ((orig + float3(-contact_radius,0,0)).ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       feature.addPoint(*pt)
 
       # move to -Y pos, probe in +Y dir
       await self.client.GoTo("Tool.A(%s),Tool.B(270)" % (a_angle_probe_contact+5)).complete()
-      ptMeas = await self.client.PtMeas("%s,IJK(0,-1,0)" % ((orig + float3(0,-contact_radius,0)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,-1,0)" % ((orig + float3(0,-contact_radius,0)).ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       feature.addPoint(*pt) 
 
@@ -1881,23 +1989,23 @@ class CalibManager:
 
       # probe in +Y dir
       await self.client.GoTo("Tool.A(%s),Tool.B(270)" % (a_angle_probe_contact+5)).complete()
-      ptMeas = await self.client.PtMeas("%s,IJK(0,-1,0)" % ((measPos2 + float3(0,-contact_radius,0)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,-1,0)" % ((measPos2 + float3(0,-contact_radius,0)).ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       feature.addPoint(*pt)
 
       # move to -X pos, probe in +X dir
       await self.client.GoTo("Tool.A(%s),Tool.B(180)" % (a_angle_probe_contact+5)).complete()
-      ptMeas = await self.client.PtMeas("%s,IJK(-1,0,0)" % ((measPos2 + float3(-contact_radius,0,0)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(-1,0,0)" % ((measPos2 + float3(-contact_radius,0,0)).ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       feature.addPoint(*pt) 
 
       # move to +Y pos, probe in -Y dir
       await self.client.GoTo("Tool.A(%s),Tool.B(90)" % (a_angle_probe_contact+5)).complete()
-      ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % ((measPos2 + float3(0,contact_radius,0)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % ((measPos2 + float3(0,contact_radius,0)).ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       feature.addPoint(*pt) 
 
-      await self.client.GoTo((orig + float3(0,0,50)).ToXYZString()).complete()
+      await self.client.GoTo((orig + float3(0,0,50)).ToXYZString()).ack()
     except Exception as ex:
       msg = "Exception in probe_spindle_tip %s" % str(ex)
       logger.debug(msg)
@@ -1938,7 +2046,7 @@ class CalibManager:
       x_feat = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
       (rad, pos) = x_feat.sphere()
       if abs(rad*2 - (Z_BALL_DIA+PROBE_DIA)) > 0.1:
-        raise CalibException("Deviation in best-fit spindle-tip sphere. Diameter %s" % (radius*2))
+        raise CalibException("Deviation in best-fit spindle-tip sphere. Diameter %s" % (rad*2))
       home_x_positions.append(pos)
     avg_home_x_pos = np.mean(home_x_positions, axis=0)
     max_dist = 0
@@ -1996,7 +2104,7 @@ class CalibManager:
       fid = self.feature_ids[feat_name]
       feat = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
       (rad, pos) = feat.sphere()
-      if abs(rad*2 - (FIXTURE_BALL_DIA+PROBE_DIA)) > 0.1:
+      if abs(rad*2 - (FIXTURE_BALL_DIA+PROBE_DIA)) > 0.0254: #TODO qualify the actual sphere
         raise CalibException("Deviation in best-fit fixture sphere. Diameter %s" % (radius*2))
       home_positions.append(pos)
     avg_home_pos = np.mean(home_positions, axis=0)
@@ -2061,7 +2169,7 @@ class CalibManager:
       fid = self.feature_ids[feat_name]
       feat = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
       (rad, pos) = feat.sphere()
-      if abs(rad*2 - (FIXTURE_BALL_DIA+PROBE_DIA)) > 0.1:
+      if abs(rad*2 - (FIXTURE_BALL_DIA+PROBE_DIA)) > 0.0254: #TODO qualify the actual sphere
         raise CalibException("Deviation in best-fit fixture sphere. Diameter %s" % (radius*2))
       home_positions.append(pos)
     avg_home_pos = np.mean(home_positions, axis=0)
@@ -2157,7 +2265,7 @@ class CalibManager:
 
       # await self.client.GoTo((start_pos + 5*float3(-drive_vec.z, 0, drive_vec.x)).ToXYZString()).complete()
       # await self.client.GoTo("Tool.A(%s),Tool.B(%s)" % (retract_a_angle_deg, retract_b_angle_deg)).complete()
-      await self.client.GoTo((retract_pos).ToXYZString()).complete()
+      await self.client.GoTo((retract_pos).ToXYZString()).ack()
 
       return True
     except Exception as ex:
@@ -2259,7 +2367,7 @@ class CalibManager:
       # print('start pos angle %s' % start_posAngle)
       start_pos = pos_bcor + float3(dist_bcor_to_startpos45 * math.cos(ang_bcor_to_startpos*math.pi/180), dist_bcor_to_startpos45 * math.sin(ang_bcor_to_startpos*math.pi/180),-6)
       # start_pos = orig + float3(start_posOriginRad * math.cos(start_posAngle*math.pi/180), start_posOriginRad * math.sin(start_posAngle*math.pi/180),-6)
-      await self.client.SetProp("Tool.PtMeasPar.Search(15)").complete()
+      await self.client.SetProp("Tool.PtMeasPar.Search(15)").ack()
       if not self.is_started_b:
         await self.client.SetProp("Tool.PtMeasPar.HeadTouch(1)").complete()
         await self.client.GoTo("Tool.A(0)").complete()
@@ -2769,8 +2877,8 @@ class CalibManager:
           #the last B-probe is at nominal 360
           line_angle_rel_0 = line_angle_rel_0 + 360
         true_nominal_pos = nominal_pos - home_err
-        # err = true_nominal_pos - line_angle_rel_0
-        err = line_angle_rel_0 - true_nominal_pos
+        err = true_nominal_pos - line_angle_rel_0
+        # err = line_angle_rel_0 - true_nominal_pos
         results.append((true_nominal_pos, err))
         fit_lines_2d.append((np.array([b_pt[0], b_pt[1]]), np.array([b_dir[0], b_dir[1]])))
       
@@ -2819,8 +2927,8 @@ class CalibManager:
         line_angle_rel_0 = -1*angle_between_ccw_2d(a_dir_transformed_2d, a0_dir)
         nominal_pos = float(feat_name[len(feat_name_suffix):-len('_proj')])
         true_nominal_pos = nominal_pos - home_err
-        # err = true_nominal_pos - line_angle_rel_0
-        err =  line_angle_rel_0 - true_nominal_pos
+        err = true_nominal_pos - line_angle_rel_0
+        # err =  line_angle_rel_0 - true_nominal_pos
         results.append((true_nominal_pos, err))
         fit_lines_2d.append((np.array([a_pt[0], a_pt[2]]), np.array([a_dir[0], a_dir[2]])))
       
@@ -3091,85 +3199,85 @@ class CalibManager:
       Find the X-offset needed so Z-norm intersects this point
     '''
     try:
-      print("Linear Axes Offsets")
+      logger.debug("Linear Axes Offsets")
       pos_a_circle_partcsy, radius_a_circle, normal_a_circle = feat_a_circle.circle()
-      print(pos_a_circle_partcsy)
+      logger.debug(pos_a_circle_partcsy)
       pos_a_circle_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_a_circle_partcsy,1))
-      print(pos_a_circle_cnccsy)
-      pos_a_circle_cnccsy_y0 = pos_a_circle_cnccsy[0:3] - np.array([0,PROBING_POS_Y,0])
-      print(pos_a_circle_cnccsy_y0)
+      logger.debug(pos_a_circle_cnccsy)
+      pos_a_circle_cnccsy_y0 = pos_a_circle_cnccsy[0:3] + np.array([0,PROBING_POS_Y,0])
+      logger.debug(pos_a_circle_cnccsy_y0)
       slope_z_axis_in_cnc_yz_plane = z_line_cnccsy_dir[1]/z_line_cnccsy_dir[2]
-      print('slope_z_axis_in_cnc_yz_plane')
-      print(slope_z_axis_in_cnc_yz_plane)
+      logger.debug('slope_z_axis_in_cnc_yz_plane')
+      logger.debug(slope_z_axis_in_cnc_yz_plane)
       feat_z_line = self.get_feature("z_line")
       # pos_z0_partcsy = feat_z_line.points()[0]
       # pos_z0_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_z0_partcsy,1))
       pos_z_home_partcsy = self.status['z_home']['avg_pos']
       pos_z_home_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_z_home_partcsy,1))
       
-      print("pos_z_home_cnccsy")
-      print(pos_z_home_cnccsy)
+      logger.debug("pos_z_home_cnccsy")
+      logger.debug(pos_z_home_cnccsy)
       z_travel_z0_to_acor = pos_a_circle_cnccsy_y0[2] - pos_z_home_cnccsy[2]
-      print("z_travel_z0_to_acor")
-      print(z_travel_z0_to_acor)
+      logger.debug("z_travel_z0_to_acor")
+      logger.debug(z_travel_z0_to_acor)
       # dist_z0_to_acor = z_travel_z0_to_acor / z_line_cnccsy_dir[2]
       y_pos_of_z_at_travel = slope_z_axis_in_cnc_yz_plane * z_travel_z0_to_acor + pos_z_home_cnccsy[1]
-      print("y_pos_of_z_at_travel")
-      print(y_pos_of_z_at_travel)
-      # print(dist_z0_to_acor)
-      y_travel_spindle_to_acor = y_pos_of_z_at_travel - pos_a_circle_cnccsy_y0[1]#pos_a_circle_cnccsy_y0[1] - (slope_z_axis_in_cnc_yz_plane * z_travel)
-      print("y offset err")
-      print(y_travel_spindle_to_acor)
+      logger.debug("y_pos_of_z_at_travel")
+      logger.debug(y_pos_of_z_at_travel)
+      # logger.debug(dist_z0_to_acor)
+      y_travel_spindle_to_acor = pos_a_circle_cnccsy_y0[1] - y_pos_of_z_at_travel #y_pos_of_z_at_travel - pos_a_circle_cnccsy_y0[1] #pos_a_circle_cnccsy_y0[1] - (slope_z_axis_in_cnc_yz_plane * z_travel)
+      logger.debug("y offset err")
+      logger.debug(y_travel_spindle_to_acor)
       self.offsets['y'] = self.active_offsets['y'] - (y_travel_spindle_to_acor)/25.4
 
       pos_b_circle_partcsy, radius_b_circle, normal_b_circle_partcsy = feat_b_circle.circle()
-      print('pos_b_circle_partcsy')
-      print(pos_b_circle_partcsy)
+      logger.debug('pos_b_circle_partcsy')
+      logger.debug(pos_b_circle_partcsy)
       pos_b_circle_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_b_circle_partcsy,1))
-      print('pos_b_circle_cnccsy')
-      print(pos_b_circle_cnccsy)
+      logger.debug('pos_b_circle_cnccsy')
+      logger.debug(pos_b_circle_cnccsy)
       pos_b_circle_cnccsy_y0 = pos_b_circle_cnccsy[0:3] - np.array([0,PROBING_POS_Y,0])
-      print('pos_b_circle_cnccsy_y0')
-      print(pos_b_circle_cnccsy_y0)
+      logger.debug('pos_b_circle_cnccsy_y0')
+      logger.debug(pos_b_circle_cnccsy_y0)
       norm_b_circle_cnccsy = np.matmul(self.cmm2cnc,np.append(normal_b_circle_partcsy,0))
-      print('norm_b_circle_cnccsy')
-      print(norm_b_circle_cnccsy)
+      logger.debug('norm_b_circle_cnccsy')
+      logger.debug(norm_b_circle_cnccsy)
 
       y_travel_b_cor_to_a_cor = pos_a_circle_cnccsy_y0[1] - pos_b_circle_cnccsy_y0[1]
-      print('y_travel_b_cor_to_a_cor')
-      print(y_travel_b_cor_to_a_cor)
+      logger.debug('y_travel_b_cor_to_a_cor')
+      logger.debug(y_travel_b_cor_to_a_cor)
       # dist_b_cor_to_a_cor_height = y_travel_b_cor_to_a_cor / norm_b_circle_cnccsy[1]
       # pos_bnorm_intersect_acor_xzplane = pos_b_circle_cnccsy_y0 + dist_b_cor_to_a_cor_height * norm_b_circle_cnccsy[0:3]
       pos_bnorm_intersect_acor_xzplane = pos_b_circle_cnccsy_y0 + y_travel_b_cor_to_a_cor * norm_b_circle_cnccsy[0:3]
-      print('pos_bnorm_intersect_acor_xzplane')
-      print(pos_bnorm_intersect_acor_xzplane)
+      logger.debug('pos_bnorm_intersect_acor_xzplane')
+      logger.debug(pos_bnorm_intersect_acor_xzplane)
 
       # xy_slope_b_norm = norm_b_circle_cnccsy[0]/norm_b_circle_cnccsy[1]
       # dist_z0_to_bcor = pos_a_circle_offset[2] - pos_z0_cnccsy[2]
       # x_offset_z_intersect_bcor = pos_b_circle_cnccsy_y0[0] - (xy_slope_b_norm * y_travel_b_cor_to_a_cor)
       
       slope_z_axis_in_cnc_xz_plane = z_line_cnccsy_dir[0]/z_line_cnccsy_dir[2]
-      print('slope_z_axis_in_cnc_xz_plane')
-      print(slope_z_axis_in_cnc_xz_plane)
+      logger.debug('slope_z_axis_in_cnc_xz_plane')
+      logger.debug(slope_z_axis_in_cnc_xz_plane)
 
       # z_diff_z0_to_pos_bnorm_intersect_acor_xzplane = pos_bnorm_intersect_acor_xzplane[2] - pos_z0_cnccsy[2]
-      # print('z_diff_z0_to_pos_bnorm_intersect_acor_xzplane')
-      # # print(z_diff_z0_to_pos_bnorm_intersect_acor_xzplane)
+      # logger.debug('z_diff_z0_to_pos_bnorm_intersect_acor_xzplane')
+      # # logger.debug(z_diff_z0_to_pos_bnorm_intersect_acor_xzplane)
       # dist_z0_to_pos_bnorm_intersect_acor_xzplane = z_diff_z0_to_pos_bnorm_intersect_acor_xzplane / z_line_cnccsy_dir[2]
-      # print('dist_z0_to_pos_bnorm_intersect_acor_xzplane')
-      # print(dist_z0_to_pos_bnorm_intersect_acor_xzplane)
+      # logger.debug('dist_z0_to_pos_bnorm_intersect_acor_xzplane')
+      # logger.debug(dist_z0_to_pos_bnorm_intersect_acor_xzplane)
       # # z_travel = pos_a_circle_cnccsy_y0[2] - pos_z0_cnccsy[2]
       # x_pos_of_z_at_travel = slope_z_axis_in_cnc_xz_plane * dist_z0_to_pos_bnorm_intersect_acor_xzplane + pos_z0_cnccsy[0]
-      # print('x_pos_of_z_at_travel')
-      # print(x_pos_of_z_at_travel)
+      # logger.debug('x_pos_of_z_at_travel')
+      # logger.debug(x_pos_of_z_at_travel)
       # # x_offset_for_z_norm_to_intersect_pos_bnorm_intersect_acor_xzplane = pos_bnorm_intersect_acor_xzplane[0] - (slope_z_axis_in_cnc_xz_plane * y_travel_b_cor_to_a_cor)
       # x_offset_for_z_norm_to_intersect_pos_bnorm_intersect_acor_xzplane = x_pos_of_z_at_travel - pos_bnorm_intersect_acor_xzplane[0]
-      # print("x offset err")
-      # print(x_offset_for_z_norm_to_intersect_pos_bnorm_intersect_acor_xzplane)
+      # logger.debug("x offset err")
+      # logger.debug(x_offset_for_z_norm_to_intersect_pos_bnorm_intersect_acor_xzplane)
 
       z_travel_z0_to_cor = norm_b_circle_cnccsy[2] - pos_z_home_cnccsy[2]
-      print('z_travel_z0_to_cor')
-      print(z_travel_z0_to_cor)
+      logger.debug('z_travel_z0_to_cor')
+      logger.debug(z_travel_z0_to_cor)
       feat_x_line = self.get_feature("x_line")
       pos_x0_partcsy = feat_x_line.points()[0]
       
@@ -3177,12 +3285,12 @@ class CalibManager:
       pos_z_home_offset_by_x_homing_variation_partcsy = pos_z_home_partcsy + vec_last_x_home_to_avg_x_home_partcsy
       pos_z_home_offset_by_x_homing_variation_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_z_home_offset_by_x_homing_variation_partcsy,1))
       x_pos_of_z_at_travel = slope_z_axis_in_cnc_xz_plane * z_travel_z0_to_cor + pos_z_home_offset_by_x_homing_variation_cnccsy[0]
-      print('x_pos_of_z_at_travel')
-      print(x_pos_of_z_at_travel)
+      logger.debug('x_pos_of_z_at_travel')
+      logger.debug(x_pos_of_z_at_travel)
 
       x_offset_for_dir_z_to_intersect_cor = x_pos_of_z_at_travel - pos_b_circle_cnccsy_y0[0]
-      print("x offset err")
-      print(x_offset_for_dir_z_to_intersect_cor)
+      logger.debug("x offset err")
+      logger.debug(x_offset_for_dir_z_to_intersect_cor)
       self.offsets['x'] = self.active_offsets['x'] - (x_offset_for_dir_z_to_intersect_cor)/25.4
     except Exception as ex:
       logger.error("calc_calib exception (in linear results): %s" % str(ex))
@@ -3195,7 +3303,7 @@ class CalibManager:
     try:
       vec_top_plane_to_a_cor = pos_a_circle_partcsy - self.fitted_features['fixture_top_face']['pt']
       dist = np.dot(vec_top_plane_to_a_cor, self.cnc_csy.y_dir)
-      self.offsets['b_table'] = dist + FIXTURE_HEIGHT
+      self.offsets['b_table'] = (dist + FIXTURE_HEIGHT) / 25.4
 
     except Exception as ex:
       logger.error("calc_calib exception (in b table offset): %s" % str(ex))
@@ -3283,27 +3391,27 @@ class CalibManager:
       new_overlay_data = copy.deepcopy(self.overlay_data)
       # with open(NEW_OVERLAY_FILENAME, 'w') as f:
       if "x" in self.offsets:
-          print("Writing %0.6f to X HOME_OFFSET" % self.offsets["x"])
+          logger.debug("Writing %0.6f to X HOME_OFFSET" % self.offsets["x"])
           ini.set_parameter(new_overlay_data, "JOINT_0", "HOME_OFFSET", self.offsets["x"])
 
       if "y" in self.offsets:
-          print("Writing %0.6f to Y HOME_OFFSET" % self.offsets["y"])
+          logger.debug("Writing %0.6f to Y HOME_OFFSET" % self.offsets["y"])
           ini.set_parameter(new_overlay_data, "JOINT_1", "HOME_OFFSET", self.offsets["y"])
 
       if "a" in self.offsets:
-          print("Writing %0.6f to A HOME_OFFSET" % self.offsets["a"])
+          logger.debug("Writing %0.6f to A HOME_OFFSET" % self.offsets["a"])
           ini.set_parameter(new_overlay_data, "JOINT_3", "HOME_OFFSET", self.offsets["a"])
 
       if "b" in self.offsets:
-          print("Writing %0.6f to B HOME_OFFSET" % self.offsets["b"])
+          logger.debug("Writing %0.6f to B HOME_OFFSET" % self.offsets["b"])
           ini.set_parameter(new_overlay_data, "JOINT_4", "HOME_OFFSET", self.offsets["b"])
 
       if "b_table" in self.offsets:
-          print("Writing %0.6f to PROBE_B_TABLE_OFFSET" % self.offsets["b_table"])
+          logger.debug("Writing %0.6f to PROBE_B_TABLE_OFFSET" % self.offsets["b_table"])
           ini.set_parameter(new_overlay_data, "TOOL_PROBE", "PROBE_B_TABLE_OFFSET", self.offsets["b_table"])
 
       if "probe_sensor_123" in self.offsets:
-          print("Writing %0.6f to PROBE_SENSOR_123_OFFSET" % self.offsets["probe_sensor_123"])
+          logger.debug("Writing %0.6f to PROBE_SENSOR_123_OFFSET" % self.offsets["probe_sensor_123"])
           ini.set_parameter(new_overlay_data, "TOOL_PROBE", "PROBE_SENSOR_123_OFFSET", self.offsets["probe_sensor_123"])
       ini.write_ini_data(new_overlay_data, NEW_OVERLAY_FILENAME)
       logger.debug(self.offsets)
@@ -3343,12 +3451,16 @@ class CalibManager:
         await self.set_cmm_csy(self.part_csy)
 
       await self.load_cnc_csy()
+
       self.load_stage_progress(Stages.PROBE_TOP_PLANE, is_performing_stage=False)
       fixture_top_face = self.metrologyManager.getActiveFeatureSet().getFeature( self.feature_ids['fixture_top_face'] )
       plane_fixture_top_face = fixture_top_face.plane()
       top_plane_pt = plane_fixture_top_face[0]
       top_plane_norm = plane_fixture_top_face[1]
       self.fitted_features['fixture_top_face'] = {'pt': top_plane_pt, 'norm': top_plane_norm}
+
+      self.load_stage_progress(Stages.PROBE_SPINDLE_POS, is_performing_stage=False)
+
       self.load_stage_progress(Stages.SETUP_CNC_CSY, is_performing_stage=False)
       return True
     except Exception as ex:
@@ -3365,7 +3477,7 @@ class CalibManager:
     XYZ ? Currently nothing in verify
     '''
     offsets = {}
-    print(self.cnc_csy)
+    logger.debug(self.cnc_csy)
 
     '''
     B results
@@ -3374,12 +3486,12 @@ class CalibManager:
       logger.debug('Calculating B Verify')
       name_b0_verify = "verify_b_%+.6f" % 0
       fid_b0_verify = self.feature_ids[name_b0_verify]
-      print('b0 fid')
-      print(fid_b0_verify)
+      logger.debug('b0 fid')
+      logger.debug(fid_b0_verify)
       feat_b0_verify = self.metrologyManager.getActiveFeatureSet().getFeature(fid_b0_verify)
-      print(feat_b0_verify.points())
+      logger.debug(feat_b0_verify.points())
       [name_b0_verify_proj] = self.project_feats_to_plane([name_b0_verify], self.cnc_csy.orig, self.cnc_csy.y_dir)
-      print('b0 projected')
+      logger.debug('b0 projected')
       fid_b0_verify_proj = self.feature_ids[name_b0_verify_proj]
       feat_b0_verify_proj = self.metrologyManager.getActiveFeatureSet().getFeature(fid_b0_verify_proj)
       dir_b0_verify_proj = feat_b0_verify_proj.line()[1]
@@ -3524,7 +3636,7 @@ class CalibManager:
         at height (Y pos) where Z-norm intersects A-CoR
       Find the X-offset needed so Z-norm intersects this point
     '''
-        '''
+    '''
     This is the final CalibManager stage. Disconnect from CMM
     '''
     await self.disconnect_from_cmm()
