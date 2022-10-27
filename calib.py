@@ -44,9 +44,11 @@ PORT_IPP = 1294
 
 POCKETNC_VAR_DIR = os.environ.get('POCKETNC_VAR_DIRECTORY')
 RESULTS_DIR = os.path.join(POCKETNC_VAR_DIR, 'calib')
-CALIB_RESULTS_DIR = os.path.join(RESULTS_DIR, 'results')
 if not os.path.exists(RESULTS_DIR):
     os.makedirs(RESULTS_DIR)
+CALIB_RESULTS_DIR = os.path.join(POCKETNC_VAR_DIR, 'calib_results')
+if not os.path.exists(CALIB_RESULTS_DIR):
+    os.makedirs(CALIB_RESULTS_DIR)
 NEW_OVERLAY_FILENAME = os.path.join(RESULTS_DIR, "CalibrationOverlay.inc")
 VERIFY_OVERLAY_FILENAME = os.path.join(RESULTS_DIR, "verify_overlay")
 VERIFY_A_FILENAME = os.path.join(RESULTS_DIR, "verify_a")
