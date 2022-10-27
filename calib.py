@@ -1606,6 +1606,10 @@ class CalibManager:
     '''
     Use results of probe_spindle_at_tool_probe and probe_fixture_plane_a90
     to calculate the PROBE_SENSOR_123_OFFSET
+    
+    probe_sensor_123 offset equals difference in CNC Z axis position between...
+    -position where tool probe button is triggered
+    -and position where contact would be made with a 3 inch block, mounted on B table, at A90 (i.e. B-face towards Z)
     '''
     try:
       feat_spindle_at_tool_probe = self.metrologyManager.getActiveFeatureSet().getFeature( self.feature_ids['spindle_at_tool_probe'] )
@@ -3311,19 +3315,6 @@ class CalibManager:
       logger.error("calc_calib exception (in b table offset): %s" % str(ex))
       raise ex
 
-    '''
-    probe_sensor_123 offset
-    Difference in CNC Z axis position between...
-    -position where tool probe button is triggered
-    -and position where contact would be made with a 3 inch block, mounted on B table, at A90 (i.e. B-face towards Z)
-    '''
-    try:
-      self.offsets['probe_sensor_123'] = 0.8 #self.tool_probe_z - self.tool_Length - 3*25.4 + self.offsets['b_table']
-
-    except Exception as ex:
-      logger.error("calc_calib exception (in probe_sensor_123 results): %s" % str(ex))
-      raise ex
-
     return True
 
 
@@ -3638,6 +3629,32 @@ class CalibManager:
         at height (Y pos) where Z-norm intersects A-CoR
       Find the X-offset needed so Z-norm intersects this point
     '''
+    try:
+      new_overlay_data = copy.deepcopy(self.overlay_data)
+      if "x" in self.offsets:
+          logger.debug("Writing %0.6f to X HOME_OFFSET" % self.offsets["x"])
+          ini.set_parameter(new_overlay_data, "JOINT_0", "HOME_OFFSET", self.offsets["x"])
+
+      if "y" in self.offsets:
+          logger.debug("Writing %0.6f to Y HOME_OFFSET" % self.offsets["y"])
+          ini.set_parameter(new_overlay_data, "JOINT_1", "HOME_OFFSET", self.offsets["y"])
+
+      if "a" in self.offsets:
+          logger.debug("Writing %0.6f to A HOME_OFFSET" % self.offsets["a"])
+          ini.set_parameter(new_overlay_data, "JOINT_3", "HOME_OFFSET", self.offsets["a"])
+
+      if "b" in self.offsets:
+          logger.debug("Writing %0.6f to B HOME_OFFSET" % self.offsets["b"])
+          ini.set_parameter(new_overlay_data, "JOINT_4", "HOME_OFFSET", self.offsets["b"])
+
+      if "b_table" in self.offsets:
+          logger.debug("Writing %0.6f to PROBE_B_TABLE_OFFSET" % self.offsets["b_table"])
+          ini.set_parameter(new_overlay_data, "TOOL_PROBE", "PROBE_B_TABLE_OFFSET", self.offsets["b_table"])
+
+      if "probe_sensor_123" in self.offsets:
+          logger.debug("Writing %0.6f to PROBE_SENSOR_123_OFFSET" % self.offsets["probe_sensor_123"])
+          ini.set_parameter(new_overlay_data, "TOOL_PROBE", "PROBE_SENSOR_123_OFFSET", self.offsets["probe_sensor_123"])
+
     '''
     This is the final CalibManager stage. Disconnect from CMM
     '''
