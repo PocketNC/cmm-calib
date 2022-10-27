@@ -410,6 +410,8 @@ FIXTURE_BALL_DIA = 6.35
 SPINDLE_BALL_DIA = 6.35
 Z_BALL_DIA = 6.35
 PROBE_DIA = 4
+CMM_SPEED = 200
+CMM_ACCEL = 100
 
 TOOL_3_LENGTH = 117.8
 B_LINE_LENGTH = 35
@@ -1227,8 +1229,8 @@ class CalibManager:
       await self.client.ClearAllErrors().complete()
       await routines.ensure_homed(self.client)
       await routines.ensure_tool_loaded(self.client, "Component_3.1.50.4.A0.0-B0.0")
-      await self.client.SetProp("Tool.GoToPar.Speed(500)").ack()
-      await self.client.SetProp("Tool.GoToPar.Accel(450)").ack()
+      await self.client.SetProp("Tool.GoToPar.Speed(%s)" % CMM_SPEED).ack()
+      await self.client.SetProp("Tool.GoToPar.Accel(%s)" % CMM_ACCEL).ack()
       await self.client.SetCsyTransformation("PartCsy, 0,0,0,0,0,0").complete()
       # await self.client.SetCsyTransformation("MachineCsy, 0,0,0,0,0,0").complete()
       await self.client.SetCoordSystem("MachineCsy").complete()
@@ -1627,7 +1629,7 @@ class CalibManager:
 
       # diff_z = pos_spindle_at_tool_probe_cnccsy[2] - pos_z_intersect_fixture_a90_cnccsy[2]
 
-      self.offsets['probe_sensor_123'] = pos_spindle_at_tool_probe_cnccsy[2] - (pos_z_intersect_fixture_a90_cnccsy[2] - (FIXTURE_HEIGHT - self.active_offsets['b_table']) + 3*25.4)
+      self.offsets['probe_sensor_123'] = (pos_spindle_at_tool_probe_cnccsy[2]-Z_BALL_DIA/2) - ((pos_z_intersect_fixture_a90_cnccsy[2]-PROBE_DIA/2) - (FIXTURE_HEIGHT - self.active_offsets['b_table']) + 3*25.4)
       logger.debug('Got probe_sensor_123 %s' % self.offsets['probe_sensor_123'])
       return True
     except Exception as ex:
@@ -3309,9 +3311,9 @@ class CalibManager:
     '''
     try:
       vec_top_plane_to_a_cor = pos_a_circle_partcsy - self.fitted_features['fixture_top_face']['pt']
-      dist = np.dot(vec_top_plane_to_a_cor, self.cnc_csy.y_dir)
+      dist = np.dot(vec_top_plane_to_a_cor, self.cnc_csy.y_dir) - PROBE_DIA/2
       logger.debug('dist along y from a-center to fixture plane %s' % dist)
-      self.offsets['b_table'] = (dist + FIXTURE_HEIGHT + 1) / 25.4
+      self.offsets['b_table'] = (dist + FIXTURE_HEIGHT) / 25.4
 
     except Exception as ex:
       logger.error("calc_calib exception (in b table offset): %s" % str(ex))
