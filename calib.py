@@ -432,7 +432,7 @@ Z_PROBE_END_TRIGGER = -24
 A_PROBE_END_TRIGGER = 129
 B_PROBE_END_TRIGGER = 356
 
-LINEAR_HOMING_REPEATABILITY = 0.001 * 25.4 # 0.001 inches, 0.0254 mm
+LINEAR_HOMING_REPEATABILITY = 2*0.001 * 25.4 # 0.001 inches, 0.0254 mm #TODO revert the 2x
 B_HOMING_REPEATABILITY = 0.04 # degrees
 A_HOMING_REPEATABILITY = 0.08 # degrees
 SPEC_ANGULAR_ACCURACY = 0.05 # degrees
@@ -2470,6 +2470,7 @@ class CalibManager:
         self.add_state('a_home_probes', self.a_home_probes, Stages.CHARACTERIZE_A)
       else:
         probeline_name = "find_a_%+.6f" % a_nominal
+      await self.client.GoTo("Tool.Alignment(0,-1,0)").complete()
       await self.probe_a(probeline_name, y_nominal, a_nominal)
     except Exception as ex:
       logger.error("find_pos_a exception (while probing): %s" % str(ex))
@@ -3303,7 +3304,8 @@ class CalibManager:
     try:
       vec_top_plane_to_a_cor = pos_a_circle_partcsy - self.fitted_features['fixture_top_face']['pt']
       dist = np.dot(vec_top_plane_to_a_cor, self.cnc_csy.y_dir)
-      self.offsets['b_table'] = (dist + FIXTURE_HEIGHT) / 25.4
+      logger.debug('dist along y from a-center to fixture plane %s' % dist)
+      self.offsets['b_table'] = (dist + FIXTURE_HEIGHT + 1) / 25.4
 
     except Exception as ex:
       logger.error("calc_calib exception (in b table offset): %s" % str(ex))
