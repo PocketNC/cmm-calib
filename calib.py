@@ -38,10 +38,6 @@ fh.setLevel(logging.DEBUG)
 logger.addHandler(fh)
 logger.debug('hello world')
 
-
-ADDRESS_CMM = "10.0.0.1"
-PORT_IPP = 1294
-
 POCKETNC_VAR_DIR = os.environ.get('POCKETNC_VAR_DIRECTORY')
 RESULTS_DIR = os.path.join(POCKETNC_VAR_DIR, 'calib')
 if not os.path.exists(RESULTS_DIR):
@@ -170,6 +166,84 @@ Calculate results
 
 
 '''
+Configuration Constants
+'''
+ADDRESS_CMM = "10.0.0.1"
+PORT_IPP = 1294
+
+EPSILON = 1e-6
+
+Z_CLEARANCE_PART_CSY = 250
+
+FIXTURE_HEIGHT = 25.2476
+FIXTURE_SIDE = 76.2
+FIXTURE_DIAG = 107.76
+TOP_BACK_RIGHT_TO_ORIG = float3()
+X_ORIGIN = 528
+Y_ORIGIN = 238
+Z_ORIGIN = 400
+CMM_ORIGIN = float3(X_ORIGIN,Y_ORIGIN,Z_ORIGIN)
+
+FIXTURE_BALL_DIA = 6.35
+SPINDLE_BALL_DIA = 6.35
+Z_BALL_DIA = 6.35
+PROBE_DIA = 4
+CMM_SPEED = 500
+CMM_ACCEL = 450
+
+TOOL_3_LENGTH = 117.8
+B_LINE_LENGTH = 35
+
+Z_MIN_LIMIT_V2_10_INCHES = -3.451
+Z_MIN_LIMIT_V2_50_INCHES = -3.541
+
+Y_MAX = 64.5
+Y_MIN = -63.5
+Y_STEP = -25
+Z_MIN = -26
+Z_STEP = -25
+B_STEP = 5
+B_MIN = 0
+B_MAX = 360
+A_STEP = 5
+A_MIN = -25
+A_MAX = 135
+X_PROBE_END_TRIGGER = -50
+Y_PROBE_END_TRIGGER = -63.5
+Z_PROBE_END_TRIGGER = -24
+A_PROBE_END_TRIGGER = 129
+B_PROBE_END_TRIGGER = 356
+
+LINEAR_HOMING_REPEATABILITY = 2*0.001 * 25.4 # 0.001 inches, 0.0254 mm #TODO revert the 2x
+B_HOMING_REPEATABILITY = 0.04 # degrees
+A_HOMING_REPEATABILITY = 0.08 # degrees
+SPEC_ANGULAR_ACCURACY = 0.05 # degrees
+SPEC_LINEAR_ACCURACY = 0.001 #Placeholder, we don't actually check this (yet)
+
+V2_10_PROPS = {
+  'A_MIN': -25,
+  'A_MAX': 135,
+  'Z_MAX': 0.1,
+  'Z_MIN': -3.451,
+}
+
+V2_50_PROPS = {
+  'A_MIN': -25,
+  'A_MAX': 135,
+  'Z_MAX': 0.0,
+  'Z_MIN': -3.541,
+}
+
+FIXTURE_OFFSET_B_ANGLE = 225
+OFFSET_B_POS_REL_Z = -135
+OFFSET_B_NEG_REL_Z = 225
+OFFSET_A_REL_Z = 90
+
+PROBING_POS_Y = -63
+
+
+
+'''
 A step is an action or set of actions. 
 Some steps are repeated (e.g. probing, clearance moves)
 Some only once (e.g. setting up coord systems)
@@ -230,7 +304,6 @@ class Steps(Enum):
 
 '''
 A stage is a progress point in the Calibration Process
-The CalibManager
 Steps may be repeated with (e.g. probing) or not (setting up coord systems)
 '''
 class Stages(Enum):
@@ -392,76 +465,6 @@ STATE_ERROR = 'ERROR'
 STATE_FAIL = 'FAIL'
 STATE_PAUSE = 'PAUSE'
 STATE_STOP = 'STOP'
-
-EPSILON = 1e-6
-
-Z_CLEARANCE_PART_CSY = 250
-
-FIXTURE_HEIGHT = 25.2476
-FIXTURE_SIDE = 76.2
-FIXTURE_DIAG = 107.76
-TOP_BACK_RIGHT_TO_ORIG = float3()
-X_ORIGIN = 528
-Y_ORIGIN = 238
-Z_ORIGIN = 400
-CMM_ORIGIN = float3(X_ORIGIN,Y_ORIGIN,Z_ORIGIN)
-
-FIXTURE_BALL_DIA = 6.35
-SPINDLE_BALL_DIA = 6.35
-Z_BALL_DIA = 6.35
-PROBE_DIA = 4
-CMM_SPEED = 200
-CMM_ACCEL = 100
-
-TOOL_3_LENGTH = 117.8
-B_LINE_LENGTH = 35
-
-Z_MIN_LIMIT_V2_10_INCHES = -3.451
-Z_MIN_LIMIT_V2_50_INCHES = -3.541
-
-Y_MAX = 64.5
-Y_MIN = -63.5
-Y_STEP = -25
-Z_MIN = -26
-Z_STEP = -25
-B_STEP = 5
-B_MIN = 0
-B_MAX = 360
-A_STEP = 5
-A_MIN = -25
-A_MAX = 135
-X_PROBE_END_TRIGGER = -50
-Y_PROBE_END_TRIGGER = -63.5
-Z_PROBE_END_TRIGGER = -24
-A_PROBE_END_TRIGGER = 129
-B_PROBE_END_TRIGGER = 356
-
-LINEAR_HOMING_REPEATABILITY = 2*0.001 * 25.4 # 0.001 inches, 0.0254 mm #TODO revert the 2x
-B_HOMING_REPEATABILITY = 0.04 # degrees
-A_HOMING_REPEATABILITY = 0.08 # degrees
-SPEC_ANGULAR_ACCURACY = 0.05 # degrees
-SPEC_LINEAR_ACCURACY = 0.001 #Placeholder, we don't actually check this (yet)
-
-V2_10_PROPS = {
-  'A_MIN': -25,
-  'A_MAX': 135,
-  'Z_MAX': 0.1,
-  'Z_MIN': -3.451,
-}
-
-V2_50_PROPS = {
-  'A_MIN': -25,
-  'A_MAX': 135,
-  'Z_MAX': 0.0,
-  'Z_MIN': -3.541,
-}
-
-FIXTURE_OFFSET_B_ANGLE = 225
-OFFSET_B_POS_REL_Z = -135
-OFFSET_B_NEG_REL_Z = 225
-OFFSET_A_REL_Z = 90
-
-PROBING_POS_Y = -63
 
 FEAT_FIXTURE_SPHERE = 'fixture_sphere'
 FEAT_SPINDLE_POS_SPHERE = 'spindle_pos_sphere'
@@ -3311,7 +3314,7 @@ class CalibManager:
     '''
     try:
       vec_top_plane_to_a_cor = pos_a_circle_partcsy - self.fitted_features['fixture_top_face']['pt']
-      dist = np.dot(vec_top_plane_to_a_cor, self.cnc_csy.y_dir) - PROBE_DIA/2
+      dist = np.dot(vec_top_plane_to_a_cor, self.cnc_csy.y_dir) + PROBE_DIA/2
       logger.debug('dist along y from a-center to fixture plane %s' % dist)
       self.offsets['b_table'] = (dist + FIXTURE_HEIGHT) / 25.4
 
@@ -3658,7 +3661,11 @@ class CalibManager:
       if "probe_sensor_123" in self.offsets:
           logger.debug("Writing %0.6f to PROBE_SENSOR_123_OFFSET" % self.offsets["probe_sensor_123"])
           ini.set_parameter(new_overlay_data, "TOOL_PROBE", "PROBE_SENSOR_123_OFFSET", self.offsets["probe_sensor_123"])
-
+    
+    except Exception as ex:
+      logger.error("write_calib exception (while writing overlay): %s" % str(ex))
+      raise ex
+      
     '''
     This is the final CalibManager stage. Disconnect from CMM
     '''
