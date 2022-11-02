@@ -2065,6 +2065,7 @@ class CalibManager:
       fid = self.feature_ids[x_feat_name]
       x_feat = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
       (rad, pos) = x_feat.sphere()
+      self.add_fitted_feature(x_feat_name, {'pos': pos, 'radius': rad}, Stages.HOMING_X)
       if abs(rad*2 - (Z_BALL_DIA+PROBE_DIA)) > 0.1:
         raise CalibException("Deviation in best-fit spindle-tip sphere. Diameter %s" % (rad*2))
       home_x_positions.append(pos)
@@ -2124,6 +2125,7 @@ class CalibManager:
       fid = self.feature_ids[feat_name]
       feat = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
       (rad, pos) = feat.sphere()
+      self.add_fitted_feature(feat_name, {'pos': pos, 'radius': rad}, Stages.HOMING_Y)
       if abs(rad*2 - (FIXTURE_BALL_DIA+PROBE_DIA)) > 0.0254: #TODO qualify the actual sphere
         raise CalibException("Deviation in best-fit fixture sphere. Diameter %s" % (radius*2))
       home_positions.append(pos)
@@ -2189,6 +2191,7 @@ class CalibManager:
       fid = self.feature_ids[feat_name]
       feat = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
       (rad, pos) = feat.sphere()
+      self.add_fitted_feature(feat_name, {'pos': pos, 'radius': rad}, Stages.HOMING_Z)
       if abs(rad*2 - (FIXTURE_BALL_DIA+PROBE_DIA)) > 0.0254: #TODO qualify the actual sphere
         raise CalibException("Deviation in best-fit fixture sphere. Diameter %s" % (radius*2))
       home_positions.append(pos)
