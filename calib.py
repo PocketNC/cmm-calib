@@ -214,9 +214,9 @@ Z_PROBE_END_TRIGGER = -24
 A_PROBE_END_TRIGGER = 129
 B_PROBE_END_TRIGGER = 356
 
-LINEAR_HOMING_REPEATABILITY = 2*0.001 * 25.4 # 0.001 inches, 0.0254 mm #TODO revert the 2x
-B_HOMING_REPEATABILITY = 0.04 # degrees
-A_HOMING_REPEATABILITY = 0.08 # degrees
+LINEAR_HOMING_REPEATABILITY = 4*0.001 * 25.4 # 0.001 inches, 0.0254 mm #TODO revert the 2x
+B_HOMING_REPEATABILITY = 4*0.04 # degrees
+A_HOMING_REPEATABILITY = 4*0.08 # degrees
 SPEC_ANGULAR_ACCURACY = 0.05 # degrees
 SPEC_LINEAR_ACCURACY = 0.001 #Placeholder, we don't actually check this (yet)
 
@@ -1580,7 +1580,7 @@ class CalibManager:
       #fit sphere to feature, use for more accurate waypoint
       try:
         (radius, pos) = feature.sphere()
-        if abs(radius*2 - (Z_BALL_DIA+PROBE_DIA)) > 0.1:
+        if abs(radius*2 - (Z_BALL_DIA+PROBE_DIA)) > 0.0254:
           raise CalibException("Unexpected spindle tip sphere diameter %s" % (radius*2))
         pos = pos + float3(0,0,(y_pos_v2 - 63.5))
         self.add_fitted_feature(FEAT_FIXTURE_SPHERE, {'pos': pos, 'radius': radius}, Stages.PROBE_FIXTURE_BALL_POS)
@@ -1621,7 +1621,7 @@ class CalibManager:
     try:
       feat_spindle_at_tool_probe = self.metrologyManager.getActiveFeatureSet().getFeature( self.feature_ids['spindle_at_tool_probe'] )
       (rad, pos_spindle_at_tool_probe) = feat_spindle_at_tool_probe.sphere()
-      if abs(rad*2 - (Z_BALL_DIA+PROBE_DIA)) > 0.1:
+      if abs(rad*2 - (Z_BALL_DIA+PROBE_DIA)) > 0.0254:
         raise CalibException("Deviation in best-fit spindle-tip sphere. Diameter %s" % (radius*2))
       feat_fixture_plane_a90 = self.metrologyManager.getActiveFeatureSet().getFeature( self.feature_ids['fixture_plane_a90'] )
       (pos_fixture_a90, norm_fixture_a90) = feat_fixture_plane_a90.plane()
@@ -1725,7 +1725,7 @@ class CalibManager:
         spindle_pos.addPoint(*pt)
 
         (radius, pos) = spindle_pos.sphere()
-        if abs(radius*2 - (Z_BALL_DIA+PROBE_DIA)) > 0.1:
+        if abs(radius*2 - (Z_BALL_DIA+PROBE_DIA)) > 0.0254:
           raise CalibException("Unexpected spindle tip sphere diameter %s" % (radius*2))
 
         self.add_fitted_feature(FEAT_SPINDLE_POS_SPHERE, {'pos': pos, 'radius': radius}, Stages.PROBE_SPINDLE_POS)
@@ -2066,7 +2066,7 @@ class CalibManager:
       x_feat = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
       (rad, pos) = x_feat.sphere()
       self.add_fitted_feature(x_feat_name, {'pos': pos, 'radius': rad}, Stages.HOMING_X)
-      if abs(rad*2 - (Z_BALL_DIA+PROBE_DIA)) > 0.1:
+      if abs(rad*2 - (Z_BALL_DIA+PROBE_DIA)) > 0.0254:
         raise CalibException("Deviation in best-fit spindle-tip sphere. Diameter %s" % (rad*2))
       home_x_positions.append(pos)
     avg_home_x_pos = np.mean(home_x_positions, axis=0)
@@ -2897,7 +2897,7 @@ class CalibManager:
         if line_angle_rel_0 < 0 and nominal_pos > 135:
           #return from angle_between_ccw_2d has range [-180,180]
           line_angle_rel_0 = line_angle_rel_0 + 360
-        if idx == len(proj_b_names) - 1:
+        if idx == len(proj_b_names) - 1 and line_angle_rel_0 < 355:
           #the last B-probe is at nominal 360
           line_angle_rel_0 = line_angle_rel_0 + 360
         true_nominal_pos = nominal_pos - home_err
