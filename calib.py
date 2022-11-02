@@ -1631,8 +1631,17 @@ class CalibManager:
       pos_spindle_at_tool_probe_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_spindle_at_tool_probe,1))
 
       # diff_z = pos_spindle_at_tool_probe_cnccsy[2] - pos_z_intersect_fixture_a90_cnccsy[2]
+      z_probe = (pos_spindle_at_tool_probe_cnccsy[2]-Z_BALL_DIA/2)
+      z_table = pos_z_intersect_fixture_a90_cnccsy[2]-PROBE_DIA/2 - FIXTURE_HEIGHT
+      probe_sensor_123 = z_probe - z_table - 3*25.4
 
-      self.offsets['probe_sensor_123'] = (pos_spindle_at_tool_probe_cnccsy[2]-Z_BALL_DIA/2) - ((pos_z_intersect_fixture_a90_cnccsy[2]-PROBE_DIA/2) - (FIXTURE_HEIGHT - self.active_offsets['b_table']) + 3*25.4)
+      logger.debug('Calculating probe_sensor_123')
+      logger.debug(z_probe)
+      logger.debug(z_table)
+      logger.debug(probe_sensor_123)
+
+      self.offsets['probe_sensor_123'] = probe_sensor_123 / 25.4
+
       logger.debug('Got probe_sensor_123 %s' % self.offsets['probe_sensor_123'])
       return True
     except Exception as ex:
@@ -3661,10 +3670,28 @@ class CalibManager:
       if "probe_sensor_123" in self.offsets:
           logger.debug("Writing %0.6f to PROBE_SENSOR_123_OFFSET" % self.offsets["probe_sensor_123"])
           ini.set_parameter(new_overlay_data, "TOOL_PROBE", "PROBE_SENSOR_123_OFFSET", self.offsets["probe_sensor_123"])
-    
+
+      ini.write_ini_data(new_overlay_data, NEW_OVERLAY_FILENAME)
+      logger.debug(self.offsets)
     except Exception as ex:
-      logger.error("write_calib exception (while writing overlay): %s" % str(ex))
+      logger.error("write_verify exception (while writing overlay): %s" % str(ex))
       raise ex
+    
+    """
+    Copy files to POCKETNC_VAR_DIR and CALIB_RESULTS_DIR
+    """
+    try:
+      for f in ['a.comp', 'b.comp', 'CalibrationOverlay.inc']:
+        curr_path = os.path.join(RESULTS_DIR, f)
+        dest_f = f[:-4] if f.endswith('.raw') else f
+        dest_path = os.path.join(CALIB_RESULTS_DIR, dest_f)
+        os.popen('cp %s %s' % (curr_path, dest_path))
+        dest_path = os.path.join(POCKETNC_VAR_DIR, dest_f)
+        os.popen('cp %s %s' % (curr_path, dest_path))
+    except Exception as ex:
+      logger.error("write_calib exception (while copying files): %s" % str(ex))
+      raise ex
+    return True
       
     '''
     This is the final CalibManager stage. Disconnect from CMM
