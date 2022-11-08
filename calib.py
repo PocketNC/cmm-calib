@@ -1251,7 +1251,7 @@ class CalibManager:
       return True
 
     try:
-      await self.client.EndSession().send()
+      await self.client.EndSession().complete()
       await self.client.disconnect()
     except CmmException as ex:
       logger.error("CmmExceptions %s" % ex)
@@ -2301,6 +2301,7 @@ class CalibManager:
     '''
     try:
       await self.find_pos_a(y_pos_v2, a_pos_v2, is_homing_check=True)
+      await self.client.GoTo("Y(-250)").complete()
       return True
     except Exception as ex:
       logger.error("probe_a_home exception %s" % str(ex))
@@ -3122,8 +3123,8 @@ class CalibManager:
     '''
     try:
       logger.debug('Calculating B Calib')
-      b_home_err = float(self.feat_name_last_find_b_proj[len("find_b_"):-len("_proj")])
-      self.offsets['b'] = self.active_offsets['b'] - b_home_err
+      self.offsets['b'] = self.active_offsets['b'] + self.status['b_home']['avg']
+      
       proj_true_b0_fid = self.feature_ids[self.feat_name_last_find_b_proj]
       feat_proj_b0 = self.metrologyManager.getActiveFeatureSet().getFeature(proj_true_b0_fid)
       dir_proj_b0 = feat_proj_b0.line()[1]
@@ -3140,7 +3141,8 @@ class CalibManager:
       dir_b0_proj_transformed = np.matmul(self.cmm2cnc,np.append(dir_proj_b0,0))
       dir_b0_proj_transformed_2d = np.array([dir_b0_proj_transformed[0],dir_b0_proj_transformed[2]])
       feat_b_circle = self.add_feature('b_circle', Stages.CALC_CALIB)
-      b_results = self.calc_b_results(self.b_calib_probes, 'probe_b_', b_home_err, dir_b0_proj_transformed_2d, feat_b_circle)
+      b_probing_home_err = float(self.feat_name_last_find_b_proj[len("find_b_"):-len("_proj")])
+      b_results = self.calc_b_results(self.b_calib_probes, 'probe_b_', b_probing_home_err, dir_b0_proj_transformed_2d, feat_b_circle)
       self.b_err = b_results[:-1]
       logger.debug("Got b_err_table")
       logger.debug(self.b_err)
@@ -3167,8 +3169,8 @@ class CalibManager:
     '''
     try:
       logger.debug('Calculating A Calib')
-      a_home_err = float(self.feat_name_last_find_a_proj[len("find_a_"):-len("_proj")])
-      self.offsets['a'] = self.active_offsets['a'] - a_home_err
+      self.offsets['a'] = self.active_offsets['a'] + self.status['a_home']['avg']
+
       proj_true_a0_fid = self.feature_ids[self.feat_name_last_find_a_proj]
       feat_proj_a0 = self.metrologyManager.getActiveFeatureSet().getFeature(proj_true_a0_fid)
       dir_proj_a0 = feat_proj_a0.line()[1]
@@ -3179,7 +3181,8 @@ class CalibManager:
       dir_a0_proj_transformed = np.matmul(self.cmm2cnc,np.append(dir_proj_a0,0))
       dir_a0_proj_transformed_2d = np.array([dir_a0_proj_transformed[1],dir_a0_proj_transformed[2]])
       feat_a_circle = self.add_feature('a_circle', Stages.CALC_CALIB)
-      a_results = self.calc_a_results(self.a_calib_probes, 'probe_a_', a_home_err, dir_a0_proj_transformed_2d, feat_a_circle)
+      a_probing_home_err = float(self.feat_name_last_find_a_proj[len("find_a_"):-len("_proj")])
+      a_results = self.calc_a_results(self.a_calib_probes, 'probe_a_', a_probing_home_err, dir_a0_proj_transformed_2d, feat_a_circle)
       self.a_err = a_results[:-1]
 
       print(feat_a_circle.points())
@@ -3315,7 +3318,7 @@ class CalibManager:
       x_offset_for_dir_z_to_intersect_cor = x_pos_of_z_at_travel - pos_b_circle_cnccsy_y0[0]
       logger.debug("x offset err")
       logger.debug(x_offset_for_dir_z_to_intersect_cor)
-      self.offsets['x'] = self.active_offsets['x'] - (x_offset_for_dir_z_to_intersect_cor)/25.4
+      self.offsets['x'] = self.active_offsets['x'] + (x_offset_for_dir_z_to_intersect_cor)/25.4
     except Exception as ex:
       logger.error("calc_calib exception (in linear results): %s" % str(ex))
       raise ex
