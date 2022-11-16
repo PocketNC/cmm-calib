@@ -403,6 +403,11 @@ STEP_STAGES = {
   Steps.VERIFY_B_HOME: Stages.HOMING_B,
 }
 
+STEP_STAGES_VERIFICATION = {
+  Steps.VERIFY_A_HOME: Stages.VERIFY_A_HOMING,
+  Steps.VERIFY_B_HOME: Stages.VERIFY_B_HOMING,
+}
+
 STAGE_PREREQS = {
   Stages.PROBE_MACHINE_POS: [Stages.SETUP_CMM],
   Stages.SETUP_PART_CSY: [Stages.PROBE_MACHINE_POS],
@@ -667,6 +672,7 @@ class CalibManager:
     self.a_ver_err = []
     self.b_ver_err = []
     self.spec = SPEC_DICT
+    self.verification = False
 
 
   def getInstance():
@@ -781,45 +787,48 @@ class CalibManager:
       with open(savefile_path, 'w') as f:
         f.write( json.dumps(save_data, cls=CalibEncoder) )
     except Exception as e:
-      print(e)
+      logger.debug(e)
       return e
 
 
   def load_stage_progress(self, stage, is_performing_stage=True):
-    save_data = {}
-    savefile_path = os.path.join(RESULTS_DIR, str(stage))
-    with open(savefile_path, 'r') as f:
-      save_data = json.loads(f.read())
-    for feat_name in save_data['features'].keys():
-      feat = self.add_feature(feat_name)
-      for pt in save_data['features'][feat_name]:
-        feat.addPoint(*pt)
-    for feat_name in save_data['fitted_features'].keys():
-      self.fitted_features[feat_name] = {}
-      for datum_name in save_data['fitted_features'][feat_name].keys():
-        self.fitted_features[feat_name][datum_name] = save_data['fitted_features'][feat_name][datum_name]
-    for prop_name in save_data['state'].keys():
-      print('loading ' + prop_name)
-      prop = save_data['state'][prop_name]
-      print(prop)
-      if type(prop) is dict and all(csy_attr in prop for csy_attr in ['euler', 'orig', 'x_dir']):
-      # in prop and hasattr(prop, 'orig') and hasattr(prop, 'x_dir'):
-        #its a CSY object converted to builtins for JSON object. Create new Csy object
-        csy = Csy(prop['orig'], np.array(prop['x_dir']), np.array(prop['y_dir']), np.array(prop['z_dir']), prop['euler'])
-        print('loading csy')
+    try:
+      save_data = {}
+      savefile_path = os.path.join(RESULTS_DIR, str(stage))
+      with open(savefile_path, 'r') as f:
+        save_data = json.loads(f.read())
+      for feat_name in save_data['features'].keys():
+        feat = self.add_feature(feat_name)
+        for pt in save_data['features'][feat_name]:
+          feat.addPoint(*pt)
+      for feat_name in save_data['fitted_features'].keys():
+        self.fitted_features[feat_name] = {}
+        for datum_name in save_data['fitted_features'][feat_name].keys():
+          self.fitted_features[feat_name][datum_name] = save_data['fitted_features'][feat_name][datum_name]
+      for prop_name in save_data['state'].keys():
+        print('loading ' + prop_name)
+        prop = save_data['state'][prop_name]
         print(prop)
-        print(csy)
-        setattr(self, prop_name, csy)
-      else:
-        setattr(self, prop_name, save_data['state'][prop_name])
+        if type(prop) is dict and all(csy_attr in prop for csy_attr in ['euler', 'orig', 'x_dir']):
+        # in prop and hasattr(prop, 'orig') and hasattr(prop, 'x_dir'):
+          #its a CSY object converted to builtins for JSON object. Create new Csy object
+          csy = Csy(prop['orig'], np.array(prop['x_dir']), np.array(prop['y_dir']), np.array(prop['z_dir']), prop['euler'])
+          print('loading csy')
+          print(prop)
+          print(csy)
+          setattr(self, prop_name, csy)
+        else:
+          setattr(self, prop_name, save_data['state'][prop_name])
 
-    # setattr(self, 'results', save_data['results'])
-    # setattr(self, 'spec', save_data['spec'])
+      setattr(self, 'status', save_data['status'])
+      setattr(self, 'spec', save_data['spec'])
 
-    if is_performing_stage:
-      self.stages_completed[str(stage)[len("Stages."):]] = True
-      self.zmq_report('STEP_COMPLETE', did_stage_complete=True, stage=stage)
-
+      if is_performing_stage:
+        self.stages_completed[str(stage)[len("Stages."):]] = True
+        self.zmq_report('STEP_COMPLETE', did_stage_complete=True, stage=stage)
+    except Exception as e:
+      logger.debug(e)
+      return e
 
 
   def save_features(self):
@@ -1007,7 +1016,10 @@ class CalibManager:
       ]:
         return (False, None)
       elif step in [Steps.VERIFY_X_HOME, Steps.VERIFY_Y_HOME, Steps.VERIFY_Z_HOME, Steps.VERIFY_A_HOME, Steps.VERIFY_B_HOME ]:
-        return (self.std_stage_complete_check(ret), STEP_STAGES[step])
+        if self.verification:
+          return (self.std_stage_complete_check(ret), STEP_STAGES_VERIFICATION[step])
+        else:
+          return (self.std_stage_complete_check(ret), STEP_STAGES[step])
       elif step is Steps.SETUP_CMM:
         return (self.std_stage_complete_check(ret), Stages.SETUP_CMM)
       elif step is Steps.SETUP_PART_CSY:
@@ -1710,8 +1722,8 @@ class CalibManager:
         pt = float3.FromXYZString(pt_meas.data_list[0])
         spindle_pos.addPoint(*pt)
         #from +Z (probe in -Z)
-        await self.client.GoTo((tip_pt + float3(5, 10, 5)).ToXYZString()).ack()
-        await self.client.GoTo((tip_pt + float3(5, 0, 5)).ToXYZString()).ack()
+        await self.client.GoTo((tip_pt + float3(5, 10, 10)).ToXYZString()).ack()
+        await self.client.GoTo((tip_pt + float3(5, 0, 10)).ToXYZString()).ack()
         meas_pos = tip_pt + float3(5, 0, Z_BALL_DIA/2)
         pt_meas = await self.client.PtMeas("%s,IJK(0,0,1)" % (meas_pos.ToXYZString())).data()
         pt = float3.FromXYZString(pt_meas.data_list[0])
@@ -3122,9 +3134,7 @@ class CalibManager:
     the center of rotation is at the centroid of these intersection positions
     '''
     try:
-      logger.debug('Calculating B Calib')
-      self.offsets['b'] = self.active_offsets['b'] + self.status['b_home']['avg']
-      
+      logger.debug('Calculating B Calib')      
       proj_true_b0_fid = self.feature_ids[self.feat_name_last_find_b_proj]
       feat_proj_b0 = self.metrologyManager.getActiveFeatureSet().getFeature(proj_true_b0_fid)
       dir_proj_b0 = feat_proj_b0.line()[1]
@@ -3153,6 +3163,56 @@ class CalibManager:
       logger.debug(err)
       logger.debug(bestAlgo)
       logger.debug(self.b_comp)
+
+      #expand B comp to [-10000,10000]
+      #remove the 0 and 360 points from cycles because they result in duplicated values, which causes error
+      #probably the 360 point should be included.
+      #0 point should have negligible error (it gets accounted for in home offset error) and can be left out
+      # pts = [ p for p in self.b_comp.pts[1:] ]
+      #now including 360 point, with extra try-blocks around each insert
+      pts = [ p for p in self.b_comp.pts[1:-1] ]
+      for cycles in range(1,29):
+        for p in pts:
+          forward = (p[0]+360*cycles, p[1])
+          reverse = (p[0]-360*cycles, p[1])
+          try:
+            self.b_comp.insert(forward)
+          except:
+            pass
+          try:
+            self.b_comp.insert(reverse)
+          except:
+            pass
+
+      '''
+      new offset = old + error
+      
+      knowns: true home position, latch position, compensation
+      true dist from latch to home
+      compensated dist from latch to home
+      nominal latch pos = -1 * compensated dist
+      new offset = nominal latch pos
+      '''
+      self.offsets['b'] = self.status['b_home']['avg'] 
+
+      # actual_latch_pos = self.status['b_home']['avg']
+      # nom_pos = actual_latch_pos
+      # while True:
+      #   logger.debug('nom_pos %s' % (nom_pos,)) 
+      #   nom_pos_comp = self.b_comp.sample(nom_pos)
+      #   logger.debug('nom_pos_comp %s' % (nom_pos_comp,))
+      #   actual_pos = nom_pos + nom_pos_comp[1]
+      #   logger.debug('actual_pos %s' % (actual_pos,))
+      #   err = actual_latch_pos - actual_pos
+      #   logger.debug('err %s' % (err,))
+      #   if abs(err) < EPSILON:
+      #     break
+      #   nom_pos = nom_pos + err
+      #   await asyncio.sleep(1)
+
+      # self.offsets['b'] = nom_pos - self.b_comp.sample(0)[1]
+      # self.active_offsets['b'] + self.status['b_home']['avg']
+
 
     except Exception as ex:
       logger.error("calc_calib exception (in b results): %s" % str(ex))
@@ -3185,8 +3245,8 @@ class CalibManager:
       a_results = self.calc_a_results(self.a_calib_probes, 'probe_a_', a_probing_home_err, dir_a0_proj_transformed_2d, feat_a_circle)
       self.a_err = a_results[:-1]
 
-      print(feat_a_circle.points())
-      print(feat_a_circle.average())
+      logger.debug(feat_a_circle.points())
+      logger.debug(feat_a_circle.average())
       logger.debug("Got a_err_table")
       logger.debug(self.a_err)
       (a_comp_table, err) = compensation.calculateACompensation(self.a_err)
@@ -3194,6 +3254,34 @@ class CalibManager:
       logger.debug("Got a_comp_table")
       logger.debug(err)
       logger.debug(self.a_comp)
+
+
+      '''
+      new offset = old + error
+      
+      knowns: true home position, latch position, compensation
+      true dist from latch to home
+      compensated dist from latch to home
+      nominal latch pos = -1 * compensated dist
+      new offset = nominal latch pos
+      '''
+      self.offsets['a'] = self.status['a_home']['avg'] 
+      # actual_latch_pos = self.status['a_home']['avg']
+      # nom_pos = actual_latch_pos
+      # while True:
+      #   logger.debug('nom_pos %s' % (nom_pos,))
+      #   nom_pos_comp = self.a_comp.sample(nom_pos)
+      #   logger.debug('nom_pos_comp %s' % (nom_pos_comp,))
+      #   actual_pos = nom_pos + nom_pos_comp[1]
+      #   logger.debug('actual_pos %s' % (actual_pos,))
+      #   err = actual_latch_pos - actual_pos
+      #   logger.debug('err %s' % (err,))
+      #   if abs(err) < EPSILON:
+      #     break
+      #   nom_pos = nom_pos + err
+      #   await asyncio.sleep(1)
+
+      # self.offsets['a'] = nom_pos - self.a_comp.sample(0)[1]
 
     except Exception as ex:
       logger.error("calc_calib exception (in a results): %s" % str(ex))
@@ -3356,24 +3444,6 @@ class CalibManager:
         for p in self.b_err:
           f.write("%0.6f %0.6f %0.6f\n" % (p[0], -p[1], -p[1]))
       with open( os.path.join(RESULTS_DIR, 'b.comp'), 'w') as f:
-        #remove the 0 and 360 points from cycles because they result in duplicated values, which causes error
-        #probably the 360 point should be included.
-        #0 point should have negligible error (it gets accounted for in home offset error) and can be left out
-        # pts = [ p for p in self.b_comp.pts[1:] ]
-        #now including 360 point, with extra try-blocks around each insert
-        pts = [ p for p in self.b_comp.pts[1:-1] ]
-        for cycles in range(1,29):
-          for p in pts:
-            forward = (p[0]+360*cycles, p[1])
-            reverse = (p[0]-360*cycles, p[1])
-            try:
-              self.b_comp.insert(forward)
-            except:
-              pass
-            try:
-              self.b_comp.insert(reverse)
-            except:
-              pass
         for p in self.b_comp.pts:
           f.write("%0.6f %0.6f %0.6f\n" % (p[0], p[1], p[1]))
     except Exception as ex:
@@ -3459,6 +3529,7 @@ class CalibManager:
     """
     #load data from before reboot that is needed to construct the CNC coord sys
     try:
+      
       self.config['table_slot'] = "front_right"
 
       await self.load_part_csy()
@@ -3477,6 +3548,7 @@ class CalibManager:
       self.load_stage_progress(Stages.PROBE_SPINDLE_POS, is_performing_stage=False)
 
       self.load_stage_progress(Stages.SETUP_CNC_CSY, is_performing_stage=False)
+      self.verification = True
       return True
     except Exception as ex:
       logger.error("setup_verify exception: %s" % str(ex))
@@ -3633,42 +3705,28 @@ class CalibManager:
       raise ex
 
     '''
-    Linear Axes
-    The home offset values should align the axes so that 
-    the axes normals intersects the center of rotation for the 
-    associated rotational axis
-    X HOME_OFFSET aligns Z-norm with B COR
-    Y HOME_OFFSET aligns Z-norm with A COR
-    Z HOME_OFFSET places tool tip TOOL_OFFSET away from B COR
-
-    First find Y offset, so that height of Z-norm relative to B-points is known
-      Find center of rotation of A
-      vertically offset CoR using the position Y was in while A was characterized
-      find additional Y-offset needed so Z-norm intersects the CoR
-    Second find X offset
-      Find the point where B-norm intersects the plane that is...
-        parallel to XZ
-        at height (Y pos) where Z-norm intersects A-CoR
-      Find the X-offset needed so Z-norm intersects this point
+    A/B Home Offsets
     '''
     try:
       new_overlay_data = copy.deepcopy(self.overlay_data)
-      if "x" in self.offsets:
-          logger.debug("Writing %0.6f to X HOME_OFFSET" % self.offsets["x"])
-          ini.set_parameter(new_overlay_data, "JOINT_0", "HOME_OFFSET", self.offsets["x"])
 
-      if "y" in self.offsets:
-          logger.debug("Writing %0.6f to Y HOME_OFFSET" % self.offsets["y"])
-          ini.set_parameter(new_overlay_data, "JOINT_1", "HOME_OFFSET", self.offsets["y"])
+      self.offsets['a'] = self.active_offsets['a'] + self.status['a_home']['avg']
+      logger.debug("Writing %0.6f to A HOME_OFFSET" % self.offsets["a"])
+      ini.set_parameter(new_overlay_data, "JOINT_3", "HOME_OFFSET", self.offsets["a"])
 
-      if "a" in self.offsets:
-          logger.debug("Writing %0.6f to A HOME_OFFSET" % self.offsets["a"])
-          ini.set_parameter(new_overlay_data, "JOINT_3", "HOME_OFFSET", self.offsets["a"])
+      self.offsets['b'] = self.active_offsets['b'] + self.status['b_home']['avg']
+      logger.debug("Writing %0.6f to B HOME_OFFSET" % self.offsets["b"])
+      ini.set_parameter(new_overlay_data, "JOINT_4", "HOME_OFFSET", self.offsets["b"])
 
-      if "b" in self.offsets:
-          logger.debug("Writing %0.6f to B HOME_OFFSET" % self.offsets["b"])
-          ini.set_parameter(new_overlay_data, "JOINT_4", "HOME_OFFSET", self.offsets["b"])
+    except Exception as ex:
+      logger.error("write_verify exception (while writing overlay): %s" % str(ex))
+      raise ex
 
+
+    '''
+    Tool Offsets
+    '''
+    try:
       if "b_table" in self.offsets:
           logger.debug("Writing %0.6f to PROBE_B_TABLE_OFFSET" % self.offsets["b_table"])
           ini.set_parameter(new_overlay_data, "TOOL_PROBE", "PROBE_B_TABLE_OFFSET", self.offsets["b_table"])
@@ -3676,7 +3734,11 @@ class CalibManager:
       if "probe_sensor_123" in self.offsets:
           logger.debug("Writing %0.6f to PROBE_SENSOR_123_OFFSET" % self.offsets["probe_sensor_123"])
           ini.set_parameter(new_overlay_data, "TOOL_PROBE", "PROBE_SENSOR_123_OFFSET", self.offsets["probe_sensor_123"])
+    except Exception as ex:
+      logger.error("write_verify exception (while setting tool offsets): %s" % str(ex))
+      raise ex
 
+    try:
       ini.write_ini_data(new_overlay_data, NEW_OVERLAY_FILENAME)
       logger.debug(self.offsets)
     except Exception as ex:
