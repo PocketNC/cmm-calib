@@ -2986,11 +2986,14 @@ class CalibManager:
         results.append((true_nominal_pos, err))
         fit_lines_2d.append((np.array([b_pt[0], b_pt[1]]), np.array([b_dir[0], b_dir[1]])))
       
-      for idx, (b_pt, b_dir) in enumerate(fit_lines_2d[:-1]):
-        (next_b_pt, next_b_dir) = fit_lines_2d[idx + 1]
-        intersect_pos = find_line_intersect(b_pt, b_dir, next_b_pt, next_b_dir)
+      #find intersections between lines drawn by positions nominally 90 degrees apart
+      intersect_lines = fit_lines_2d[:-1]
+      for idx, (b_pt, b_dir) in enumerate(intersect_lines):
+        cross_idx = int((idx + 90/B_STEP) % len(intersect_lines))
+        (cross_pt, cross_dir) = intersect_lines[cross_idx]
+        intersect_pos = find_line_intersect(b_pt, b_dir, cross_pt, cross_dir)
         feat_b_circle.addPoint(intersect_pos[0], intersect_pos[1], 0)
-      
+
       return results
     except Exception as ex:
       logger.error("calc_b_results exception: %s" % str(ex))
@@ -3036,13 +3039,17 @@ class CalibManager:
         results.append((true_nominal_pos, err))
         fit_lines_2d.append((np.array([a_pt[0], a_pt[2]]), np.array([a_dir[0], a_dir[2]])))
       
+      #find intersections between lines drawn by positions nominally 90 degrees apart
       for idx, (a_pt, a_dir) in enumerate(fit_lines_2d[:-1]):
-        (next_pt, next_dir) = fit_lines_2d[idx + 1]
-        intersect_pos = find_line_intersect(a_pt, a_dir, next_pt, next_dir)
+        # cross_idx = int((idx + 90/A_STEP) % len(fit_lines_2d))
+        cross_idx = int(idx + 90/A_STEP)
+        if cross_idx > len(fit_lines_2d) - 1:
+          break
+        (cross_pt, cross_dir) = fit_lines_2d[cross_idx]
+        intersect_pos = find_line_intersect(a_pt, a_dir, cross_pt, cross_dir)
         feat_a_circle.addPoint(intersect_pos[0], 0, intersect_pos[1])
 
       return results
-
     except Exception as ex:
       logger.error("calc_a_results exception: %s" % str(ex))
       raise ex
@@ -3381,112 +3388,11 @@ class CalibManager:
     '''
     try:
       logger.debug("Linear Axes Offsets")
-      pos_a_circle_partcsy, radius_a_circle, normal_a_circle = feat_a_circle.circle()
-      logger.debug('pos_a_circle_partcsy %s ' % (pos_a_circle_partcsy,))
-      logger.debug('radius a_circle %s' %(radius_a_circle,))
-      pos_a_circle_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_a_circle_partcsy,1))
-      logger.debug(pos_a_circle_cnccsy)
-      pos_a_circle_cnccsy_y0 = pos_a_circle_cnccsy[0:3] + np.array([0,PROBING_POS_Y,0])
-      logger.debug(pos_a_circle_cnccsy_y0)
-      
-      feat_z_line = self.get_feature("z_line")
-      pos_z_home_partcsy = self.status['z_home']['avg_pos']
-      pos_z_home_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_z_home_partcsy,1))
-      
-      logger.debug("pos_z_home_cnccsy")
-      logger.debug(pos_z_home_cnccsy)
-      z_travel_z0_to_acor = pos_a_circle_cnccsy_y0[2] - pos_z_home_cnccsy[2]
-      logger.debug("z_travel_z0_to_acor")
-      logger.debug(z_travel_z0_to_acor)
-
-      y_travel_spindle_to_acor = pos_a_circle_cnccsy_y0[1] - pos_z_home_cnccsy[1]
-      logger.debug("y offset err")
-      logger.debug(y_travel_spindle_to_acor)
-
-      self.offsets['y'] = self.active_offsets['y'] - (y_travel_spindle_to_acor)/25.4
-
-      pos_b_circle_partcsy, radius_b_circle, normal_b_circle_partcsy = feat_b_circle.circle()
-      logger.debug('pos_b_circle_partcsy')
-      logger.debug(pos_b_circle_partcsy)
-      pos_b_circle_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_b_circle_partcsy,1))
-      logger.debug('pos_b_circle_cnccsy')
-      logger.debug(pos_b_circle_cnccsy)
-      pos_b_circle_cnccsy_y0 = pos_b_circle_cnccsy[0:3] + np.array([0,PROBING_POS_Y,0])
-      logger.debug('pos_b_circle_cnccsy_y0')
-      logger.debug(pos_b_circle_cnccsy_y0)
-      norm_b_circle_cnccsy = np.matmul(self.cmm2cnc,np.append(normal_b_circle_partcsy,0))
-      logger.debug('norm_b_circle_cnccsy')
-      logger.debug(norm_b_circle_cnccsy)
-
-      y_travel_b_cor_to_a_cor = pos_a_circle_cnccsy_y0[1] - pos_b_circle_cnccsy_y0[1]
-      logger.debug('y_travel_b_cor_to_a_cor')
-      logger.debug(y_travel_b_cor_to_a_cor)
-      # dist_b_cor_to_a_cor_height = y_travel_b_cor_to_a_cor / norm_b_circle_cnccsy[1]
-      # pos_bnorm_intersect_acor_xzplane = pos_b_circle_cnccsy_y0 + dist_b_cor_to_a_cor_height * norm_b_circle_cnccsy[0:3]
-      pos_bnorm_intersect_acor_xzplane = pos_b_circle_cnccsy_y0 + y_travel_b_cor_to_a_cor * norm_b_circle_cnccsy[0:3]
-      logger.debug('pos_bnorm_intersect_acor_xzplane')
-      logger.debug(pos_bnorm_intersect_acor_xzplane)
-
-      # xy_slope_b_norm = norm_b_circle_cnccsy[0]/norm_b_circle_cnccsy[1]
-      # dist_z0_to_bcor = pos_a_circle_offset[2] - pos_z0_cnccsy[2]
-      # x_offset_z_intersect_bcor = pos_b_circle_cnccsy_y0[0] - (xy_slope_b_norm * y_travel_b_cor_to_a_cor)
-      
-      slope_z_axis_in_cnc_xz_plane = z_line_cnccsy_dir[0]/z_line_cnccsy_dir[2]
-      logger.debug('slope_z_axis_in_cnc_xz_plane')
-      logger.debug(slope_z_axis_in_cnc_xz_plane)
-
-      # z_diff_z0_to_pos_bnorm_intersect_acor_xzplane = pos_bnorm_intersect_acor_xzplane[2] - pos_z0_cnccsy[2]
-      # logger.debug('z_diff_z0_to_pos_bnorm_intersect_acor_xzplane')
-      # # logger.debug(z_diff_z0_to_pos_bnorm_intersect_acor_xzplane)
-      # dist_z0_to_pos_bnorm_intersect_acor_xzplane = z_diff_z0_to_pos_bnorm_intersect_acor_xzplane / z_line_cnccsy_dir[2]
-      # logger.debug('dist_z0_to_pos_bnorm_intersect_acor_xzplane')
-      # logger.debug(dist_z0_to_pos_bnorm_intersect_acor_xzplane)
-      # # z_travel = pos_a_circle_cnccsy_y0[2] - pos_z0_cnccsy[2]
-      # x_pos_of_z_at_travel = slope_z_axis_in_cnc_xz_plane * dist_z0_to_pos_bnorm_intersect_acor_xzplane + pos_z0_cnccsy[0]
-      # logger.debug('x_pos_of_z_at_travel')
-      # logger.debug(x_pos_of_z_at_travel)
-      # # x_offset_for_z_norm_to_intersect_pos_bnorm_intersect_acor_xzplane = pos_bnorm_intersect_acor_xzplane[0] - (slope_z_axis_in_cnc_xz_plane * y_travel_b_cor_to_a_cor)
-      # x_offset_for_z_norm_to_intersect_pos_bnorm_intersect_acor_xzplane = x_pos_of_z_at_travel - pos_bnorm_intersect_acor_xzplane[0]
-      # logger.debug("x offset err")
-      # logger.debug(x_offset_for_z_norm_to_intersect_pos_bnorm_intersect_acor_xzplane)
-
-      z_travel_z0_to_cor = norm_b_circle_cnccsy[2] - pos_z_home_cnccsy[2]
-      logger.debug('z_travel_z0_to_cor')
-      logger.debug(z_travel_z0_to_cor)
-      feat_x_line = self.get_feature("x_line")
-      pos_x0_partcsy = feat_x_line.points()[0]
-      
-      vec_last_x_home_to_avg_x_home_partcsy = pos_x0_partcsy - self.status['x_home']['avg_pos']
-      pos_z_home_offset_by_x_homing_variation_partcsy = pos_z_home_partcsy + vec_last_x_home_to_avg_x_home_partcsy
-      pos_z_home_offset_by_x_homing_variation_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_z_home_offset_by_x_homing_variation_partcsy,1))
-      x_pos_of_z_at_travel = slope_z_axis_in_cnc_xz_plane * z_travel_z0_to_cor + pos_z_home_offset_by_x_homing_variation_cnccsy[0]
-      logger.debug('x_pos_of_z_at_travel')
-      logger.debug(x_pos_of_z_at_travel)
-
-      x_offset_for_dir_z_to_intersect_cor = x_pos_of_z_at_travel - pos_b_circle_cnccsy_y0[0]
-      logger.debug("x offset err")
-      logger.debug(x_offset_for_dir_z_to_intersect_cor)
-      self.offsets['x'] = self.active_offsets['x'] + (x_offset_for_dir_z_to_intersect_cor)/25.4
+      self.calc_offsets(feat_a_circle, feat_b_circle)
     except Exception as ex:
       logger.error("calc_calib exception (in linear results): %s" % str(ex))
       raise ex
-
-    '''
-    B table offset
-    Distance along y-norm, from A-center-of-rotation to top of B table
-    '''
-    try:
-      vec_top_plane_to_a_cor = pos_a_circle_partcsy - self.fitted_features['fixture_top_face']['pt']
-      dist = np.dot(vec_top_plane_to_a_cor, self.cnc_csy.y_dir) + PROBE_DIA/2
-      logger.debug('dist along y from a-center to fixture plane %s' % dist)
-      self.offsets['b_table'] = (dist + FIXTURE_HEIGHT) / 25.4
-
-    except Exception as ex:
-      logger.error("calc_calib exception (in b table offset): %s" % str(ex))
-      raise ex
-
     return True
-
 
   async def write_calib(self):
     return self.write_calib_sync()
@@ -3693,10 +3599,10 @@ class CalibManager:
         dir_a0_verify_proj = -1 * dir_a0_verify_proj
       dir_a0_ver_proj_transformed = np.matmul(self.cmm2cnc,np.append(dir_a0_verify_proj,0))
       dir_a0_ver_proj_transformed_2d = np.array([dir_a0_ver_proj_transformed[1],dir_a0_ver_proj_transformed[2]])
-      feat_a_circle = self.add_feature('a_verify_circle', Stages.CALC_VERIFY)
-      a_results = self.calc_a_results(self.a_verify_probes, 'verify_a_', 0, dir_a0_ver_proj_transformed_2d, feat_a_circle)
-      logger.debug(feat_a_circle.points())
-      logger.debug(feat_a_circle.average())
+      feat_a_verify_circle = self.add_feature('a_verify_circle', Stages.CALC_VERIFY)
+      a_results = self.calc_a_results(self.a_verify_probes, 'verify_a_', 0, dir_a0_ver_proj_transformed_2d, feat_a_verify_circle)
+      logger.debug(feat_a_verify_circle.points())
+      logger.debug(feat_a_verify_circle.average())
       logger.debug("Got verify A err_table")
       logger.debug(a_results)
       a_max_abs_err_pos = 0
@@ -3712,12 +3618,113 @@ class CalibManager:
     except Exception as ex:
       logger.error("calc_verify exception (a results): %s" % str(ex))
       raise ex
+
+    try:
+      self.calc_offsets(feat_a_verify_circle, feat_b_verify_circle)
+    except Exception as ex:
+      logger.error("calc_verify exception (offsets): %s" % str(ex))
+      raise ex
     
     #do not return False here when spec fails
     #unlike some earlier stages that perform a spec check
-    #because we want to run stage write_verify either way
+    #because we want to run the next stage (write_verify) either way
     self.status['spec_failure'] = (not a_in_spec) or (not b_in_spec)
     return True
+
+  def calc_offsets(self, feat_a_circle, feat_b_circle):
+    '''
+    Linear Axes
+    The home offset values should align the axes so that 
+    the axes normals intersects the center of rotation for the 
+    associated rotational axis
+    X HOME_OFFSET aligns Z-norm with B COR
+    Y HOME_OFFSET aligns Z-norm with A COR
+    Z HOME_OFFSET places tool tip TOOL_OFFSET away from B COR
+
+    Account for homing variation 
+
+      """account for homing variation by offsetting by the vector drawn from 
+      the last Z home position to the average Z home position
+      """
+
+    First find Y offset, so that height of Z-norm relative to B-points is known
+      Find center of rotation of A
+      Calculate Y-pos of spindle tip when spindle Z-pos is equal to Z-pos of A-CoR 
+      Difference in Y between these two positions is Y-offset err
+      New Y-offset = Old - err
+    Second find X offset
+      Find the point where B-norm intersects the plane that is...
+        parallel to XZ
+        at height (Y pos) where Z-norm intersects A-CoR
+      Find the X-offset needed so Z-norm intersects this point
+    '''
+    try:
+      pos_a_circle_partcsy, radius_a_circle, normal_a_circle = feat_a_circle.circle()
+      pos_a_circle_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_a_circle_partcsy,1))
+      pos_a_circle_cnccsy_y0 = pos_a_circle_cnccsy[0:3] + np.array([0,PROBING_POS_Y,0])
+      
+      feat_z_line = self.get_feature("z_line") #TODO reload z_line for verify
+      pos_z_home_partcsy = self.status['z_home']['avg_pos'] #TODO reload z_home for verify
+      pos_z_home_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_z_home_partcsy,1))
+      
+      # z_travel_z0_to_acor = pos_a_circle_cnccsy_y0[2] - pos_z_home_cnccsy[2]
+      # logger.debug("z_travel_z0_to_acor")
+      # logger.debug(z_travel_z0_to_acor)
+
+      y_offset_err = pos_a_circle_cnccsy_y0[1] - pos_z_home_cnccsy[1]
+
+      self.offsets['y'] = self.active_offsets['y'] - (y_offset_err)/25.4
+      logger.debug("y_offset_err %s" % (y_offset_err,))
+      logger.debug("old y offset %s" % (self.active_offsets['y'],))
+      logger.debug("new y offset %s" % (self.offsets['y'],))
+
+      pos_b_circle_partcsy, radius_b_circle, normal_b_circle_partcsy = feat_b_circle.circle()
+      logger.debug('pos_b_circle_partcsy %s' % (pos_b_circle_partcsy,))
+      pos_b_circle_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_b_circle_partcsy,1))
+      logger.debug('pos_b_circle_cnccsy %s' % (pos_b_circle_cnccsy,))
+      pos_b_circle_cnccsy_y0 = pos_b_circle_cnccsy[0:3] + np.array([0,PROBING_POS_Y,0])
+      logger.debug('pos_b_circle_cnccsy_y0 %s' % (pos_b_circle_cnccsy_y0,))
+      norm_b_circle_cnccsy = np.matmul(self.cmm2cnc,np.append(normal_b_circle_partcsy,0))
+      logger.debug('norm_b_circle_cnccsy %s' % (norm_b_circle_cnccsy,))
+
+      y_travel_bcor_to_acor = pos_a_circle_cnccsy_y0[1] - pos_b_circle_cnccsy_y0[1]
+      logger.debug('y_travel_bcor_to_acor %s' % (y_travel_bcor_to_acor,))
+      
+      # z_travel_z0_to_cor = norm_b_circle_cnccsy[2] - pos_z_home_cnccsy[2]
+      # logger.debug('z_travel_z0_to_cor')
+      # logger.debug(z_travel_z0_to_cor)
+      
+      feat_x_line = self.get_feature("x_line") #TODO reload x_line for verify
+      pos_x0_partcsy = feat_x_line.points()[0]
+      vec_avg_x_home_to_last_x_home_partcsy = pos_x0_partcsy - self.status['x_home']['avg_pos']
+      pos_z_home_offset_by_x_homing_variation_partcsy = pos_z_home_partcsy + vec_avg_x_home_to_last_x_home_partcsy
+      pos_z_home_offset_by_x_homing_variation_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_z_home_offset_by_x_homing_variation_partcsy,1))
+
+      x_offset_err = pos_z_home_offset_by_x_homing_variation_cnccsy[0] - pos_b_circle_cnccsy_y0[0]
+      self.offsets['x'] = self.active_offsets['x'] + (x_offset_err/25.4)
+      logger.debug("x offset err %s" % (x_offset_err,))
+      logger.debug("old x offset %s" % (self.active_offsets['x'],))
+      logger.debug("new x offset %s" % (self.offsets['x'],))
+    except Exception as ex:
+      logger.error("calc_offsets exception (in linear results): %s" % str(ex))
+      raise ex
+
+    '''
+    B table offset
+    Distance along y-norm, from A-center-of-rotation to top of B table
+    '''
+    try:
+      vec_top_plane_to_a_cor = pos_a_circle_partcsy - self.fitted_features['fixture_top_face']['pt']
+      dist = np.dot(vec_top_plane_to_a_cor, self.cnc_csy.y_dir) + PROBE_DIA/2
+      logger.debug('dist along y from a-center to fixture plane %s' % dist)
+      self.offsets['b_table'] = (dist + FIXTURE_HEIGHT) / 25.4
+
+    except Exception as ex:
+      logger.error("calc_offsets exception (in b table offset): %s" % str(ex))
+      raise ex
+
+    return True
+
 
 
   async def write_verify(self):
@@ -3781,11 +3788,20 @@ class CalibManager:
       logger.error("write_verify exception (while writing overlay): %s" % str(ex))
       raise ex
 
-
     '''
-    Tool Offsets
+    Linear Offsets
     '''
     try:
+      new_overlay_data = copy.deepcopy(self.overlay_data)
+      # with open(NEW_OVERLAY_FILENAME, 'w') as f:
+      if "x" in self.offsets:
+          logger.debug("Writing %0.6f to X HOME_OFFSET" % self.offsets["x"])
+          ini.set_parameter(new_overlay_data, "JOINT_0", "HOME_OFFSET", self.offsets["x"])
+
+      if "y" in self.offsets:
+          logger.debug("Writing %0.6f to Y HOME_OFFSET" % self.offsets["y"])
+          ini.set_parameter(new_overlay_data, "JOINT_1", "HOME_OFFSET", self.offsets["y"])
+
       if "b_table" in self.offsets:
           logger.debug("Writing %0.6f to PROBE_B_TABLE_OFFSET" % self.offsets["b_table"])
           ini.set_parameter(new_overlay_data, "TOOL_PROBE", "PROBE_B_TABLE_OFFSET", self.offsets["b_table"])
@@ -3793,8 +3809,10 @@ class CalibManager:
       if "probe_sensor_123" in self.offsets:
           logger.debug("Writing %0.6f to PROBE_SENSOR_123_OFFSET" % self.offsets["probe_sensor_123"])
           ini.set_parameter(new_overlay_data, "TOOL_PROBE", "PROBE_SENSOR_123_OFFSET", self.offsets["probe_sensor_123"])
+      ini.write_ini_data(new_overlay_data, NEW_OVERLAY_FILENAME)
+      logger.debug(self.offsets)
     except Exception as ex:
-      logger.error("write_verify exception (while setting tool offsets): %s" % str(ex))
+      logger.error("write_verify exception (setting offsets): %s" % str(ex))
       raise ex
 
     try:
