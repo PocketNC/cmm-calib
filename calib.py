@@ -14,6 +14,7 @@ from tornado.ioloop import IOLoop
 import logging
 import json
 import compensation
+import traceback
 
 from ipp import Client, TransactionCallbacks, float3, CmmException, readPointData
 import ipp_routines as routines
@@ -33,10 +34,11 @@ logging.basicConfig(filename="/var/opt/pocketnc/calib/calib.log",
   datefmt='%H:%M:%S',
 )
 logger = logging.getLogger(__name__)
-fh = logging.FileHandler("/var/opt/pocketnc/calib/calib.log")
-fh.setLevel(logging.DEBUG)
-logger.addHandler(fh)
-logger.debug('hello world')
+if not logger.hasHandlers():
+  fh = logging.FileHandler("/var/opt/pocketnc/calib/calib.log")
+  fh.setLevel(logging.DEBUG)
+  logger.addHandler(fh)
+  logger.debug('hello world')
 
 POCKETNC_VAR_DIR = os.environ.get('POCKETNC_VAR_DIRECTORY')
 RESULTS_DIR = os.path.join(POCKETNC_VAR_DIR, 'calib')
@@ -603,6 +605,7 @@ class Csy:
 
 class CalibManager:
   def __init__(self):
+    logger.debug("in CalibManager constructor")
     self.client = None
 
     self.config = {}
@@ -953,7 +956,7 @@ class CalibManager:
         z_dir = np.array(data['z_dir']) if data['z_dir'] else None
         euler = np.array(data['euler']) if data['euler'] else None
         logger.debug('setting cnc_csy')
-        logger.debug(orig, x_dir, y_dir, z_dir, euler)
+        logger.debug("(%s, %s, %s, %s, %s)" % (orig, x_dir, y_dir, z_dir, euler))
         part_csy = Csy(orig, x_dir, y_dir, z_dir, euler)
         self.add_state('part_csy', part_csy, Stages.SETUP_PART_CSY)
 
@@ -992,7 +995,7 @@ class CalibManager:
         z_dir = np.array(data['z_dir']) if data['z_dir'] else None
         euler = np.array(data['euler']) if data['euler'] else None
         logger.debug('setting cnc_csy')
-        logger.debug(orig, x_dir, y_dir, z_dir, euler)
+        logger.debug("(%s, %s, %s, %s, %s)" % (orig, x_dir, y_dir, z_dir, euler))
         cnc_csy = Csy(orig, x_dir, y_dir, z_dir, euler)
         self.add_state('cnc_csy', cnc_csy, Stages.SETUP_CNC_CSY)
 
@@ -1156,6 +1159,7 @@ class CalibManager:
       self.status['run_state'] = STATE_RUN
       self.is_running = True
       if not self.config['skip_updates']:
+        logger.debug("sending update %s" % (self.config['skip_updates'],))
         self.zmq_report('UPDATE')
       self.status['step'] = step.toJSON()
       # self.status['stage'] = stage # stage isn't known yet here.... remove from status, or add "stage_for_step" dict?
