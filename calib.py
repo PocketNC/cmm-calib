@@ -279,15 +279,17 @@ class Steps(Enum):
   PROBE_SPINDLE_AT_TOOL_PROBE = auto()
   PROBE_FIXTURE_PLANE_A90 = auto()
   TOOL_PROBE_OFFSET = auto()
+  PROBE_HOME_OFFSET_X = auto()
+  PROBE_HOME_OFFSET_Y = auto()
   PROBE_X = auto() 
   PROBE_Y = auto()
   PROBE_Z = auto()
   PROBE_A = auto()
   PROBE_B = auto()
   '''
-  the find_pos_ steps use the same methods as probe_ steps, 
-  but they use a different pattern for naming the metrology feature, 
-  and instead of returning nothing they return the measured value 
+  the find_pos_* steps use the same methods as probe_* steps, 
+  but they use a different pattern for naming the created metrology feature, 
+  and they return the measured value (probe_* returns True)
   '''
   FIND_POS_A = auto() 
   FIND_POS_B = auto()
@@ -336,6 +338,7 @@ class Stages(Enum):
   RESTART_CNC: auto()
   SETUP_VERIFY = auto()
   TOOL_PROBE_OFFSET = auto()
+  PROBE_HOME_OFFSET = auto()
   VERIFY_A_HOMING = auto()
   VERIFY_B_HOMING = auto()
   VERIFY_A = auto()
@@ -506,6 +509,7 @@ waypoints_from_pocket_origin = {
   'fixture_ball': float3(-94.0, -114.7, -123.4),
   # 'fixture_ball': float3(-94.4, -107.0, -123.4),
   'probe_fixture_plane_a90': float3(-56.5, -93.5, -41.5)
+  'cor': float3(-61.8, -112.4, -69.7)
 }
 
 waypoints_table_center = {
@@ -1144,7 +1148,7 @@ class CalibManager:
     try:
       self.status['run_state'] = STATE_RUN
       self.is_running = True
-      self.zmq_report('UPDATE')
+      # self.zmq_report('UPDATE')
       self.status['step'] = step.toJSON()
       # self.status['stage'] = stage # stage isn't known yet here.... remove from status, or add "stage_for_step" dict?
       step_ret = asyncio.get_event_loop().run_until_complete(step_method(*args))
@@ -2109,6 +2113,73 @@ class CalibManager:
       logger.debug(msg)
       return err_msg(msg)
 
+  async def probe_home_offset_y(self, y_pos_v2 ):
+    '''
+    Probe top and bottom faces of fixture 
+    with A at ~90 and B rotated so top/bottom faces are perpendicular to Y-axis
+    '''
+    try:
+      try:
+        feat = self.get_feature('home_offset_y')
+      except Exception as e:
+        feat = self.add_feature('home_offset_y', Stages.PROBE_HOME_OFFSET)
+      
+      orig = waypoints['cor'] + float3(0,0,-(y_pos_v2))
+      await self.client.GoTo((orig + float3(100,0,100)).ToXYZString()).complete()
+      
+      start_pos = orig + float3(0,FIXTURE_SIDE/2,FIXTURE_SIDE/2)
+      drive_vec = float3(0,-1,0)
+      face_norm = float3(0,0,1)
+      points_top = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,1)
+      for pt in points:
+        feat.addPoint(*pt)
+
+      await self.client.GoTo((orig + float3(100,0,0)).ToXYZString()).complete()
+      start_pos = orig + float3(0,FIXTURE_SIDE/2,-FIXTURE_SIDE/2)
+      drive_vec = float3(0,-1,0)
+      face_norm = float3(0,0,-1)
+      points_bottom = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,1)
+      for pt in points:
+        feat.addPoint(*pt)
+
+    except Exception as ex:
+      msg = "Exception in probe_home_offset_y %s" % str(ex)
+      logger.debug(msg)
+      return err_msg(msg)
+
+  async def probe_home_offset_x(self, x_pos_v2, y_pos_v2, z_pos_v2, ):
+    '''
+    Probe side faces of fixture 
+    with A at ~90 and B rotated so side faces are perpendicular to X-axis
+    '''
+    try:
+      try:
+        feat = self.get_feature('home_offset_x')
+      except Exception as e:
+        feat = self.add_feature('home_offset_x', Stages.PROBE_HOME_OFFSET)
+      
+      orig = waypoints['cor']
+      await self.client.GoTo((orig + float3(100,0,100)).ToXYZString()).complete()
+      
+      start_pos = orig + float3(0,-FIXTURE_SIDE/2,FIXTURE_SIDE/2)
+      drive_vec = float3(0,0,-1)
+      face_norm = float3(0,-1,0)
+      points_top = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,1)
+      for pt in points:
+        feat.addPoint(*pt)
+
+      await self.client.GoTo((orig + float3(100,0,0)).ToXYZString()).complete()
+      start_pos = orig + float3(0,FIXTURE_SIDE/2,FIXTURE_SIDE/2)
+      drive_vec = float3(0,0,-1)
+      face_norm = float3(0,1,0)
+      points_bottom = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,1)
+      for pt in points:
+        feat.addPoint(*pt)
+
+    except Exception as ex:
+      msg = "Exception in probe_home_offset_x %s" % str(ex)
+      logger.debug(msg)
+      return err_msg(msg)
 
   async def probe_x(self, x_pos_v2, z_pos_v2):
     feat_name = "x_%+.4f" % x_pos_v2
