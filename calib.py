@@ -34,11 +34,13 @@ logging.basicConfig(filename="/var/opt/pocketnc/calib/calib.log",
   datefmt='%H:%M:%S',
 )
 logger = logging.getLogger(__name__)
-if not logger.hasHandlers():
-  fh = logging.FileHandler("/var/opt/pocketnc/calib/calib.log")
-  fh.setLevel(logging.DEBUG)
-  logger.addHandler(fh)
-  logger.debug('hello world')
+if logger.hasHandlers():
+  logger.handlers.clear()
+
+fh = logging.FileHandler("/var/opt/pocketnc/calib/calib.log")
+fh.setLevel(logging.DEBUG)
+logger.addHandler(fh)
+logger.debug('hello world')
 
 POCKETNC_VAR_DIR = os.environ.get('POCKETNC_VAR_DIRECTORY')
 RESULTS_DIR = os.path.join(POCKETNC_VAR_DIR, 'calib')
@@ -54,6 +56,7 @@ VERIFY_B_FILENAME = os.path.join(RESULTS_DIR, "verify_b")
 VERIFY_REPORT_FILENAME = os.path.join(RESULTS_DIR, "verify_report")
 PART_CSY_SAVE_FILENAME = os.path.join(RESULTS_DIR, 'part_csy_savefile')
 CNC_CSY_SAVE_FILENAME = os.path.join(RESULTS_DIR, 'cnc_csy_savefile')
+REAL_AXES_SAVE_FILENAME = os.path.join(RESULTS_DIR, 'real_axes_savefile')
 
 calibrationOverlayFileName = os.path.join(POCKETNC_VAR_DIR, "CalibrationOverlay.inc")
 iniFileName = os.path.join(POCKETNC_VAR_DIR, "PocketNC.ini")
@@ -295,6 +298,7 @@ class Steps(Enum):
   '''
   FIND_POS_A = auto() 
   FIND_POS_B = auto()
+  FIND_POS_FIXTURE_REL_Y_PERP = auto()
   CALC_CALIB = auto()
   WRITE_CALIB = auto()
   '''verification steps'''
@@ -648,6 +652,7 @@ class CalibManager:
     self.part_csy_euler = None
     self.part_csy = None
     self.cnc_csy = None
+    self.real_axes = {}
 
 
     self.a_calib_probes = []
@@ -949,7 +954,7 @@ class CalibManager:
       logger.error(e)
       raise e
 
-  async def load_part_csy(self):
+  def load_part_csy(self):
     try:
       with open(PART_CSY_SAVE_FILENAME, 'r') as f:
         data = json.loads(f.read())
@@ -988,7 +993,7 @@ class CalibManager:
       logger.error(e)
       raise e
 
-  async def load_cnc_csy(self):
+  def load_cnc_csy(self):
     try:
       with open(CNC_CSY_SAVE_FILENAME, 'r') as f:
         data = json.loads(f.read())
@@ -1010,6 +1015,17 @@ class CalibManager:
       logger.error("Exception saving features")
       logger.error(e)
       raise e
+
+  def load_real_axes(self):
+    try:
+      with open(REAL_AXES_SAVE_FILENAME, 'r') as f:
+        data = json.loads(f.read())
+        self.real_axes['y'] = np.array(data['y_line_real'])
+        logger.debug(self.real_axes)
+    except Exception as e:
+      logger.error("Exception loading real axes %s" % (e))
+      raise e
+
 
   def is_ready_for_step(self, step):
     logger.debug('checking is_ready_for_step')
@@ -2804,12 +2820,17 @@ class CalibManager:
       points_top = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,1)
       for pt in points:
         feat.addPoint(*pt)
-      self.project_feats_to_plane([feat], self.cnc_csy.orig,)
-      (orig, vec) = feat.line()
+      feat_proj = self.project_feats_to_plane([feat], self.cnc_csy.orig,self.cnc_csy.z_dir)
+      (orig, vec) = feat_proj.line()
       if vec[1] > 0:
         #y-component in PartCsy should be negative
         vec = -1*vec
-      
+      vec_cnccsy = np.matmul(self.cmm2cnc, np.append(vec, 0))
+      dir_y_line_real = self.fitted_features['y_line_real']['norm']
+      dir_y_line_real_cnccsy = np.matmul(self.cmm2cnc, np.append(dir_y_line_real, 0))
+      angle_rel_y = angle_between_ccw_2d([vec_cnccsy[0],vec_cnccsy[1]],[dir_y_line_real_cnccsy[0],dir_y_line_real_cnccsy[1]])
+      logger.debug('angle_rel_y %s' % (angle_rel_y,))
+      return angle_rel_y - 90
     except Exception as ex:
       logger.error("find_pos_fixture_rel_y_perp exception: %s" % str(ex))
       raise ex
@@ -2822,6 +2843,7 @@ class CalibManager:
     calculate and return the angle between the line and X-axis
     '''
     try:
+      pass
 
     except Exception as ex:
       logger.error("find_pos_fixture_rel_y_perp exception: %s" % str(ex))
@@ -3631,11 +3653,12 @@ class CalibManager:
       
       self.config['table_slot'] = "front_right"
 
-      await self.load_part_csy()
+      self.load_part_csy()
       if not self.config['skip_cmm']:
         await self.set_cmm_csy(self.part_csy)
 
-      await self.load_cnc_csy()
+      self.load_cnc_csy()
+      self.load_real_axes()
 
       self.load_stage_progress(Stages.PROBE_TOP_PLANE, is_performing_stage=False)
       fixture_top_face = self.metrologyManager.getActiveFeatureSet().getFeature( self.feature_ids['fixture_top_face'] )
@@ -3650,6 +3673,7 @@ class CalibManager:
       self.verification = True
       return True
     except Exception as ex:
+      logger.error(traceback.format_exc())
       logger.error("setup_verify exception: %s" % str(ex))
       raise ex
 
