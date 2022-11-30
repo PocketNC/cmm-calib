@@ -664,6 +664,9 @@ class CalibManager:
     self.x_home_probes = []
     self.y_home_probes = []
     self.z_home_probes = []
+    
+    self.count_fixture_rel_y_perp_probes = 0
+    self.count_fixture_rel_x_perp_probes = 0
 
     self.ini_data = ini.read_ini_data(iniFileName)
     self.overlay_data = ini.read_ini_data(calibrationOverlayFileName)
@@ -2783,6 +2786,46 @@ class CalibManager:
       logger.error("find_pos_b exception (while calculating B position): %s" % str(ex))
       raise ex
 
+  async def find_pos_fixture_rel_y_perp(self, y_pos_v2, a_pos_v2, b_pos_v2):
+    '''
+    With A90 B45, 
+    probe a line on the top face of the fixture
+    calculate and return the angle between the line and Y-axis
+    '''
+    try:
+      logger.debug('probing fixture_rel_y_perp %s %s %s' % (y_pos_v2, a_pos_v2, b_pos_v2))
+      feat_name = "fixture_rel_y_perp_%d" % self.count_fixture_rel_y_perp_probes
+      feat = self.add_feature(feat_name, Stages.PROBE_HOME_OFFSET)
+      self.count_fixture_rel_y_perp_probes += 1
+
+      start_pos = orig + float3(0,FIXTURE_SIDE/2,FIXTURE_SIDE/2)
+      drive_vec = float3(0,-1,0)
+      face_norm = float3(0,0,1)
+      points_top = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,1)
+      for pt in points:
+        feat.addPoint(*pt)
+      self.project_feats_to_plane([feat], self.cnc_csy.orig,)
+      (orig, vec) = feat.line()
+      if vec[1] > 0:
+        #y-component in PartCsy should be negative
+        vec = -1*vec
+      
+    except Exception as ex:
+      logger.error("find_pos_fixture_rel_y_perp exception: %s" % str(ex))
+      raise ex
+      
+
+  async def find_pos_fixture_rel_x_perp(self, y_pos_v2, a_pos_v2, b_pos_v2):
+    '''
+    With A90 B45, 
+    probe a line on a side face of the fixture
+    calculate and return the angle between the line and X-axis
+    '''
+    try:
+
+    except Exception as ex:
+      logger.error("find_pos_fixture_rel_y_perp exception: %s" % str(ex))
+      raise ex
 
   async def set_tool_probe_z(self, tool_probe_z):
     self.tool_probe_z = tool_probe_z
@@ -2900,10 +2943,11 @@ class CalibManager:
       dir_y = np.cross(dir_z_axis_partcsy, dir_x)
       dir_z = dir_z_axis_partcsy
       #TODO use part csy origin
-      p2m_construct = np.array([dir_x,dir_y,dir_z,top_plane_pt])
+      orig = waypoints['cor']
+      p2m_construct = np.array([dir_x,dir_y,dir_z,orig])
       p2m = np.vstack((p2m_construct.transpose(),[0,0,0,1]))
       cmm2cnc = np.linalg.inv(p2m)
-      cnc_csy = Csy(top_plane_pt, dir_x, dir_y, dir_z, None)
+      cnc_csy = Csy(orig, dir_x, dir_y, dir_z, None)
       self.add_state('cnc_csy', cnc_csy, Stages.SETUP_CNC_CSY)
       self.add_state('dir_x', dir_x, Stages.SETUP_CNC_CSY)
       self.add_state('dir_y', dir_y, Stages.SETUP_CNC_CSY)
