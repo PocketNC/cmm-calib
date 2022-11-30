@@ -559,6 +559,7 @@ class CalibManager:
     self.config = {}
     self.config['skip_cmm'] = False
     self.config['table_slot'] = None
+    self.config['skip_updates'] = False
 
     self.status = {}
     self.status['is_running'] = False
@@ -631,6 +632,11 @@ class CalibManager:
     self.b_ver_err = []
     self.spec = SPEC_DICT
 
+  def set_config(self, name, value):
+    self.config[name] = value
+
+  def get_config(self, name):
+    return self.config.get(name, None)
 
   def getInstance():
     global calibManagerInstance
@@ -781,7 +787,8 @@ class CalibManager:
 
     if is_performing_stage:
       self.stages_completed[str(stage)[len("Stages."):]] = True
-      self.zmq_report('STEP_COMPLETE', did_stage_complete=True, stage=stage)
+      if not self.config['skip_updates']:
+        self.zmq_report('STEP_COMPLETE', did_stage_complete=True, stage=stage)
 
 
 
@@ -1085,7 +1092,8 @@ class CalibManager:
     try:
       self.status['run_state'] = STATE_RUN
       self.is_running = True
-      self.zmq_report('UPDATE')
+      if not self.config['skip_updates']:
+        self.zmq_report('UPDATE')
       self.status['step'] = step.toJSON()
       # self.status['stage'] = stage # stage isn't known yet here.... remove from status, or add "stage_for_step" dict?
       step_ret = asyncio.get_event_loop().run_until_complete(step_method(*args))
@@ -1127,13 +1135,16 @@ class CalibManager:
         self.status['run_state'] = STATE_IDLE
 
         logger.info('completing step %s' % step)
-        self.zmq_report('STEP_COMPLETE', did_stage_complete=did_stage_complete, stage=stage_for_step)
+        if not self.config['skip_updates']:
+          self.zmq_report('STEP_COMPLETE', did_stage_complete=did_stage_complete, stage=stage_for_step)
       else:
         if self.status['spec_failure']:
           #failed a verification check, the process should stop
-          self.zmq_report(MSG_WHY_FAIL)
+          if not self.config['skip_updates']:
+            self.zmq_report(MSG_WHY_FAIL)
         else:
-          self.zmq_report('STEP_COMPLETE')
+          if not self.config['skip_updates']:
+            self.zmq_report('STEP_COMPLETE')
       
       logger.info('step %s return value %s' % (step, step_ret))
       return step_ret
@@ -1143,14 +1154,16 @@ class CalibManager:
       logger.error(msg)
       did_stage_complete, stage_for_step = self.did_step_complete_stage(step, e, *args)
       self.updateStatusException(e)
-      self.zmq_report('ERROR', did_stage_complete=did_stage_complete, stage=stage_for_step)
+      if not self.config['skip_updates']:
+        self.zmq_report('ERROR', did_stage_complete=did_stage_complete, stage=stage_for_step)
       raise e
     except Exception as e:
       msg = err_msg("Error while running step %s:  %s" % (step, str(e)))
       logger.error(msg)
       did_stage_complete, stage_for_step = self.did_step_complete_stage(step, e, *args)
       self.updateStatusException(e)
-      self.zmq_report('ERROR', did_stage_complete=did_stage_complete, stage=stage_for_step)
+      if not self.config['skip_updates']:
+        self.zmq_report('ERROR', did_stage_complete=did_stage_complete, stage=stage_for_step)
       raise e
 
   def updateStatusException(self, exception):
@@ -1955,8 +1968,9 @@ class CalibManager:
     if max_dist > LINEAR_HOMING_REPEATABILITY:
       self.spec['x_homing_repeatability']['pass'] = False
       self.status['spec_failure'] = True
-      # self.zmq_report('FAILURE', stage=Stages.CHARACTERIZE_X, step=Steps.VERIFY_X_HOME)
-      # raise CalibException("FAIL: x homing variation exceeded spec: %s" % max_dist)
+      # if not self.config['skip_updates']:
+      #   self.zmq_report('FAILURE', stage=Stages.CHARACTERIZE_X, step=Steps.VERIFY_X_HOME)
+      #   raise CalibException("FAIL: x homing variation exceeded spec: %s" % max_dist)
       return False
     else:
       self.spec['x_homing_repeatability']['pass'] = True
