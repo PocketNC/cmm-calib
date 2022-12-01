@@ -1,16 +1,12 @@
-import sys
 import os
 import math
 import copy
 import importlib
-from dataclasses import dataclass
 from enum import Enum, auto
 import numpy as np
 import zmq
 import asyncio
 from zmq.asyncio import Context
-import tornado
-from tornado.ioloop import IOLoop
 import logging
 import json
 import compensation
@@ -26,8 +22,24 @@ def reload():
   importlib.reload(routines)
   importlib.reload(metrology)
 
+POCKETNC_VAR_DIR = os.environ.get('POCKETNC_VAR_DIRECTORY')
+RESULTS_DIR = os.path.join(POCKETNC_VAR_DIR, 'calib')
+if not os.path.exists(RESULTS_DIR):
+    os.makedirs(RESULTS_DIR)
+CALIB_RESULTS_DIR = os.path.join(POCKETNC_VAR_DIR, 'calib_results')
+if not os.path.exists(CALIB_RESULTS_DIR):
+    os.makedirs(CALIB_RESULTS_DIR)
 
-logging.basicConfig(filename="/var/opt/pocketnc/calib/calib.log", 
+NEW_OVERLAY_FILENAME = os.path.join(RESULTS_DIR, "CalibrationOverlay.inc")
+VERIFY_OVERLAY_FILENAME = os.path.join(RESULTS_DIR, "verify_overlay")
+VERIFY_A_FILENAME = os.path.join(RESULTS_DIR, "verify_a")
+VERIFY_B_FILENAME = os.path.join(RESULTS_DIR, "verify_b")
+VERIFY_REPORT_FILENAME = os.path.join(RESULTS_DIR, "verify_report")
+PART_CSY_SAVE_FILENAME = os.path.join(RESULTS_DIR, 'part_csy_savefile')
+CNC_CSY_SAVE_FILENAME = os.path.join(RESULTS_DIR, 'cnc_csy_savefile')
+REAL_AXES_SAVE_FILENAME = os.path.join(RESULTS_DIR, 'real_axes_savefile')
+
+logging.basicConfig(filename=os.path.join(RESULTS_DIR, "calib.log"), 
   filemode='a', 
   level=logging.DEBUG,
   format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
@@ -37,26 +49,12 @@ logger = logging.getLogger(__name__)
 if logger.hasHandlers():
   logger.handlers.clear()
 
-fh = logging.FileHandler("/var/opt/pocketnc/calib/calib.log")
+formatter = logging.Formatter('%(asctime)s,%(msecs)d %(name)s %(levelname)s line %(lineno)d: %(message)s', datefmt='%H:%M:%S')
+fh = logging.FileHandler(os.path.join(RESULTS_DIR, "calib.log"))
+fh.setFormatter(formatter)
 fh.setLevel(logging.DEBUG)
 logger.addHandler(fh)
 logger.debug('hello world')
-
-POCKETNC_VAR_DIR = os.environ.get('POCKETNC_VAR_DIRECTORY')
-RESULTS_DIR = os.path.join(POCKETNC_VAR_DIR, 'calib')
-if not os.path.exists(RESULTS_DIR):
-    os.makedirs(RESULTS_DIR)
-CALIB_RESULTS_DIR = os.path.join(POCKETNC_VAR_DIR, 'calib_results')
-if not os.path.exists(CALIB_RESULTS_DIR):
-    os.makedirs(CALIB_RESULTS_DIR)
-NEW_OVERLAY_FILENAME = os.path.join(RESULTS_DIR, "CalibrationOverlay.inc")
-VERIFY_OVERLAY_FILENAME = os.path.join(RESULTS_DIR, "verify_overlay")
-VERIFY_A_FILENAME = os.path.join(RESULTS_DIR, "verify_a")
-VERIFY_B_FILENAME = os.path.join(RESULTS_DIR, "verify_b")
-VERIFY_REPORT_FILENAME = os.path.join(RESULTS_DIR, "verify_report")
-PART_CSY_SAVE_FILENAME = os.path.join(RESULTS_DIR, 'part_csy_savefile')
-CNC_CSY_SAVE_FILENAME = os.path.join(RESULTS_DIR, 'cnc_csy_savefile')
-REAL_AXES_SAVE_FILENAME = os.path.join(RESULTS_DIR, 'real_axes_savefile')
 
 calibrationOverlayFileName = os.path.join(POCKETNC_VAR_DIR, "CalibrationOverlay.inc")
 iniFileName = os.path.join(POCKETNC_VAR_DIR, "PocketNC.ini")
@@ -466,14 +464,6 @@ FEATURE_NAMES_BY_STAGE = {
   Stages.VERIFY_A: lambda n: len(n) == 7 and n.find('x_') == 0,
 }
 
-def does_feature_belong_to_stage(name, stage):
-  return name in stage_features
-
-def stage_features_include_name(name, stage_features):
-  return name in stage_features
-
-# def stage_feature_name_selectors(stage):
-
 V2_VARIANT_10 = "V2-10"
 V2_VARIANT_50 = "V2-50"
 
@@ -741,15 +731,6 @@ class CalibManager:
       logger.debug(e)
       raise e
 
-
-  def reload_features(self):
-    for f in self.metrologyManager:
-      logger.debug(f)
-
-  def set_state(self, name, val):
-    logger.debug('set_state %s %s' % (name, val))
-    setattr(self, name, val)
-
   def add_state(self, name, val, stage=None):
     setattr(self, name, val)
     if stage is not None:
@@ -778,9 +759,7 @@ class CalibManager:
 
   def clear_features(self):
     self.metrologyManager = metrology.FeatureManager.getInstance()
-    self.metrologyManager.sets.clear()
-    # while len(self.metrologyManager.sets) > 0:
-    #   self.metrologyManager.pop()
+    self.metrologyManager.clear()
 
   def save_progress_for_stage(self, stage):
     try:
@@ -873,7 +852,7 @@ class CalibManager:
       logger.error(e)
       raise e
 
-  def save_fitted_featues(self):
+  def save_fitted_features(self):
     try:
       save_data = {}
       for k in self.fitted_features.keys():
