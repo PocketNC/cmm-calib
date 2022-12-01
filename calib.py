@@ -2684,24 +2684,22 @@ class CalibManager:
       
       a_line_proj_line = a_line_proj.line()
       a_proj_line_dir = a_line_proj_line[1]
-      # A-line dirs around A0 should have a positive Z-component in PartCsy
-      if a_proj_line_dir[2] < 0:
-        a_proj_line_dir = -1*a_proj_line_dir
 
+      if a_line.points()[0][2] > a_line.points()[-1][2]:
+        #first point higher than last, line should be upwards
+        if a_proj_line_dir[2] < 0:
+          a_proj_line_dir = -1 * a_proj_line_dir
+      else:
+        #first point lower than last, line should be downwards
+        if a_proj_line_dir[2] > 0:
+          a_proj_line_dir = -1 * a_proj_line_dir
+      
       self.fitted_features[proj_probeline_name] = {'pt': a_line_proj_line[0], 'dir': a_proj_line_dir}
       a_line_translated_dir = np.matmul(self.cmm2cnc, np.append(a_proj_line_dir, 0))
-      logger.debug('a_line_translated_dir')
-      logger.debug(a_line_translated_dir)
-      # z_norm_2d_xz = [self.z_norm[0], self.z_norm[2]]
-      #don't use z_norm, that is in the PartCsy. We are in the ideal CNC Csy
+      logger.debug('a_line_translated_dir %s' % (a_line_translated_dir,))
+      
       a_dir_2d_yz = [a_line_translated_dir[1], a_line_translated_dir[2]]
-      # a_pos_rel_z = angle_between_ccw_2d(z_norm_2d_xz, a_dir_2d_yz)
-      
       a_pos_rel_z = angle_between_ccw_2d([1,0], a_dir_2d_yz)
-      # if a_line_translated_dir[1] >= 0:
-      # else:
-      #   a_pos_rel_z = angle_between_ccw_2d([-1,0], a_dir_2d_yz)
-      
       a_pos = a_pos_rel_z
 
       logger.debug("found A pos %s" % a_pos)
@@ -2711,6 +2709,7 @@ class CalibManager:
         self.add_state('a_home_values', self.a_home_values, Stages.CHARACTERIZE_A)
       else:
         self.add_state('feat_name_last_find_a_proj', proj_probeline_name, Stages.CHARACTERIZE_A)
+      
       return a_pos
     except Exception as ex:
       logger.error("find_pos_a exception (while calculating A position): %s" % str(ex))
@@ -2793,21 +2792,28 @@ class CalibManager:
       feat = self.add_feature(feat_name, Stages.PROBE_HOME_OFFSET)
       self.count_fixture_rel_y_perp_probes += 1
 
+      await self.client.GoTo("Tool.Alignment(1,0,0)").complete()
+      
+      orig = waypoints['cor']
       start_pos = orig + float3(0,FIXTURE_SIDE/2,FIXTURE_SIDE/2)
+      await self.client.GoTo((start_pos + float3(25, 0, 25)).ToXYZString()).complete()
+
       drive_vec = float3(0,-1,0)
-      face_norm = float3(0,0,1)
-      points_top = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,1)
+      face_norm = float3(0,0,-1)
+      points = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,-1,1)
       for pt in points:
         feat.addPoint(*pt)
-      feat_proj = self.project_feats_to_plane([feat], self.cnc_csy.orig,self.cnc_csy.z_dir)
+      name_feat_proj = self.project_feats_to_plane([feat_name], self.cnc_csy.orig,self.cnc_csy.z_dir)[0]
+      feat_proj = self.get_feature(name_feat_proj)
       (orig, vec) = feat_proj.line()
+
       if vec[1] > 0:
         #y-component in PartCsy should be negative
         vec = -1*vec
       vec_cnccsy = np.matmul(self.cmm2cnc, np.append(vec, 0))
       dir_y_line_real = self.fitted_features['y_line_real']['norm']
       dir_y_line_real_cnccsy = np.matmul(self.cmm2cnc, np.append(dir_y_line_real, 0))
-      angle_rel_y = angle_between_ccw_2d([vec_cnccsy[0],vec_cnccsy[1]],[dir_y_line_real_cnccsy[0],dir_y_line_real_cnccsy[1]])
+      angle_rel_y = angle_between_ccw_2d([dir_y_line_real_cnccsy[0],dir_y_line_real_cnccsy[1]],[vec_cnccsy[0],vec_cnccsy[1]])
       logger.debug('angle_rel_y %s' % (angle_rel_y,))
       return angle_rel_y - 90
     except Exception as ex:
@@ -2822,7 +2828,35 @@ class CalibManager:
     calculate and return the angle between the line and X-axis
     '''
     try:
-      pass
+      logger.debug('probing fixture_rel_x_perp %s %s %s' % (y_pos_v2, a_pos_v2, b_pos_v2))
+      feat_name = "fixture_rel_x_perp_%d" % self.count_fixture_rel_x_perp_probes
+      feat = self.add_feature(feat_name, Stages.PROBE_HOME_OFFSET)
+      self.count_fixture_rel_x_perp_probes += 1
+
+      await self.client.GoTo("Tool.Alignment(1,0,0)").complete()
+
+      orig = waypoints['cor']
+      start_pos = orig + float3(0,FIXTURE_SIDE/2,FIXTURE_SIDE/2)
+      await self.client.GoTo((start_pos + float3(25, 25, 0)).ToXYZString()).complete()
+
+      drive_vec = float3(0,0,-1)
+      face_norm = float3(0,-1,0)
+      points_top = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,1)
+      for pt in points:
+        feat.addPoint(*pt)
+      name_feat_proj = self.project_feats_to_plane([feat_name], self.cnc_csy.orig,self.cnc_csy.z_dir)[0]
+      feat_proj = self.get_feature(name_feat_proj)
+      (orig, vec) = feat_proj.line()
+
+      if vec[2] > 0:
+        #z-component in PartCsy should be negative
+        vec = -1*vec
+      vec_cnccsy = np.matmul(self.cmm2cnc, np.append(vec, 0))
+      dir_x_line_real = self.fitted_features['x_line_real']['norm']
+      dir_x_line_real_cnccsy = np.matmul(self.cmm2cnc, np.append(dir_x_line_real, 0))
+      angle_rel_x = angle_between_ccw_2d([vec_cnccsy[0],vec_cnccsy[1]],[dir_x_line_real_cnccsy[0],dir_x_line_real_cnccsy[1]])
+      logger.debug('angle_rel_x %s' % (angle_rel_x,))
+      return angle_rel_x - 90
 
     except Exception as ex:
       logger.error("find_pos_fixture_rel_y_perp exception: %s" % str(ex))
@@ -2944,7 +2978,7 @@ class CalibManager:
       dir_y = np.cross(dir_z_axis_partcsy, dir_x)
       dir_z = dir_z_axis_partcsy
       #TODO use part csy origin
-      orig = waypoints['cor']
+      orig = np.array(waypoints['cor'])
       p2m_construct = np.array([dir_x,dir_y,dir_z,orig])
       p2m = np.vstack((p2m_construct.transpose(),[0,0,0,1]))
       cmm2cnc = np.linalg.inv(p2m)
@@ -2959,77 +2993,6 @@ class CalibManager:
     except Exception as ex:
       logger.error("setup_cnc_csy exception (while creating csy): %s" % str(ex))
       raise ex
-
-
-  #TODO Remove?
-  async def calc_a_err(self, a_feat_list, feat_name_suffix, a0_feat_id, nominal_a_0=0.0,  ):
-    try:
-      """Project the points from A-probing onto a plane defined by X-dir of CNC CSY
-      """
-      for a_feat_name in a_feat_list:
-        fid = self.feature_ids[a_feat_name]
-        a_line = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
-        a_line_proj = self.add_feature('proj_' + a_probe_feat_name, Stages.WRITE_CALIB)
-        for pt in a_line.points():
-          orig_to_pt = pt - self.cnc_csy.orig
-          dist = np.dot(orig_to_pt, self.cnc_csy.x_dir)
-          proj_pt = pt - dist * self.cnc_csy.x_dir
-          a_line_proj.addPoint(proj_pt[0], proj_pt[1], proj_pt[2])
-
-      """Create nominal A0 vector variable for comparison in loop
-      """
-      feat_a0 = self.feature_ids[a0_feat_id]
-      (pt_a0, dir_a0) = feat_a0.line()
-      #A lines close to 0 should always have a positive Z-component in PartCsy
-      if dir_a0[2] < 0:
-        dir_a0 = -1*dir_a0
-      dir_a0_cnc = np.matmul(self.cmm2cnc,np.append(dir_a0,0))
-      dir_a0_cnc_2d_xz = np.array([dir_a0_cnc[0],dir_a0_cnc[2]])
-
-      """Compare the A-feature positions to A0
-      """
-      a_err_list = []
-      for idx, a_feat_name in enumerate(a_feat_list):
-        fid_a_line_proj = self.feature_ids['proj_' + a_feat_name]
-        feat_proj_a = self.metrologyManager.getActiveFeatureSet().getFeature(fid_a_line_proj)
-        (pt_proj_a, dir_proj_a) = feat_proj_a.line()
-
-        """make sure the best-fit line is in right direction
-        """
-        points = feat_proj_a.points()
-        #the sign of (last - first) should be same as on dir
-        if points[0][0] > points[-1][0]:
-          #first X greater than last, dir-X should be positive
-          if dir_proj_a[0] < 0:
-            dir_proj_a = -1 * dir_proj_a
-        else:
-          #first X less than or equal to last, dir-X should be 0 or negative
-          if dir_proj_a[0] > 0:
-            dir_proj_a = -1 * dir_proj_a
-
-        dir_proj_a_cnc = np.matmul(self.cmm2cnc ,np.append(dir_proj_a,0))
-        dir_proj_a_cnc_2d_xz = np.array([dir_proj_a_cnc[0],dir_proj_a_cnc[2]])
-
-        #get the nominal position from feature name
-        #pattern for feature name depends on calib('probe_a_') or verify('verify_a_')
-        nominal_pos = float(a_feat_name[len(feat_name_suffix):])
-        nominal_pos_adjusted = nominal_pos - a_home_err
-        line_angle_rel_0 = angle_between_ccw_2d(dir_proj_a_cnc_2d_xz, dir_proj_a_cnc_2d_xz)
-        if line_angle_rel_0 < 0 and nominal_pos > 135:
-          #shift [-180,0] portion to [180,360]
-          line_angle_rel_0 = line_angle_rel_0 + 360
-        elif nominal_pos > 360:
-          line_angle_rel_0 = line_angle_rel_0 + 360
-
-        err = line_angle_rel_0 - nominal_pos
-        a_err_list.append((nominal_pos, err))
-
-      return a_err_list
-
-    except Exception as e:
-      logger.error(str(e))
-      raise e
-
 
   #TODO Remove?
   async def project_b_features(self, b_feat_list):
