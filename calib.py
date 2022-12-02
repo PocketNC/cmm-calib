@@ -2124,6 +2124,9 @@ class CalibManager:
       return err_msg(msg)
 
   async def experiment_with_cmm_movement(self):
+    if self.config['skip_cmm']:
+      return
+
     try:
       orig = waypoints['origin']
 
