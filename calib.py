@@ -39,12 +39,6 @@ PART_CSY_SAVE_FILENAME = os.path.join(RESULTS_DIR, 'part_csy_savefile')
 CNC_CSY_SAVE_FILENAME = os.path.join(RESULTS_DIR, 'cnc_csy_savefile')
 REAL_AXES_SAVE_FILENAME = os.path.join(RESULTS_DIR, 'real_axes_savefile')
 
-logging.basicConfig(filename=os.path.join(RESULTS_DIR, "calib.log"), 
-  filemode='a', 
-  level=logging.DEBUG,
-  format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-  datefmt='%H:%M:%S',
-)
 logger = logging.getLogger(__name__)
 if logger.hasHandlers():
   logger.handlers.clear()
@@ -289,6 +283,7 @@ class Steps(Enum):
   PROBE_Z = auto()
   PROBE_A = auto()
   PROBE_B = auto()
+  EXPERIMENT_WITH_CMM_MOVEMENT = auto()
   '''
   the find_pos_* steps use the same methods as probe_* steps, 
   but they use a different pattern for naming the created metrology feature, 
@@ -1224,7 +1219,7 @@ class CalibManager:
       raise e
     except Exception as e:
       msg = err_msg("Error while running step %s:  %s" % (step, str(e)))
-      logger.error(msg)
+      logger.error(msg, exc_info=True)
       did_stage_complete, stage_for_step = self.did_step_complete_stage(step, e, *args)
       self.updateStatusException(e)
       if not self.config['skip_updates']:
@@ -2128,7 +2123,19 @@ class CalibManager:
       logger.debug(msg)
       return err_msg(msg)
 
-  async def probe_home_offset_y(self, y_pos_v2 ):
+  async def experiment_with_cmm_movement(self):
+    try:
+      orig = waypoints['origin']
+
+      await self.client.GoTo("Tool.Alignment(0,-1,0)").complete()
+      await self.client.GoTo((orig + float3(100,0,100)).ToXYZString()).complete()
+      await routines.headprobe_line_yz(self.client, (orig + float3(0,-25.4,5)), float3(-1,0,0), 25.4, float3(0,0,1), 3, 1) 
+    except Exception as ex:
+      msg = "Exception in experiment_with_cmm_movement %s" % str(ex)
+      logger.error(msg)
+      raise ex
+    
+  async def probe_home_offset_y(self, y_pos_v2, a_pos_v2, b_pos_v2):
     '''
     Probe top and bottom faces of fixture 
     with A at ~90 and B rotated so top/bottom faces are perpendicular to Y-axis
@@ -2817,7 +2824,7 @@ class CalibManager:
       logger.debug('angle_rel_y %s' % (angle_rel_y,))
       return angle_rel_y - 90
     except Exception as ex:
-      logger.error("find_pos_fixture_rel_y_perp exception: %s" % str(ex))
+      logger.error("find_pos_fixture_rel_y_perp exception: %s" % str(ex), exc_info=True)
       raise ex
       
 
