@@ -850,6 +850,7 @@ class CalibManager:
 
   def save_fitted_features(self):
     try:
+      
       save_data = {}
       for k in self.fitted_features.keys():
         save_data[k] = {}
@@ -991,13 +992,26 @@ class CalibManager:
       logger.error(e)
       raise e
 
+  def save_real_axes(self):
+    try:
+      data = {}
+      data['x'] = self.fitted_features['x_line_real']
+      data['y'] = self.fitted_features['y_line_real']
+      data['z'] = self.fitted_features['z_line_real']
+      data = json.loads(f.read())
+      with open(REAL_AXES_SAVE_FILENAME, 'r') as f:
+        f.write(json.dumps(data, cls=CalibEncoder))
+    except Exception as e:
+      logger.error("Exception loading real axes %s" % (e))
+      raise e
+
   def load_real_axes(self):
     try:
       with open(REAL_AXES_SAVE_FILENAME, 'r') as f:
         data = json.loads(f.read())
-        self.real_axes['y'] = np.array(data['y_line_real'])
-        self.real_axes['x'] = np.array(data['x_line_real'])
-        logger.debug(self.real_axes)
+        self.add_fitted_feature('x_line_real', np.array(data['x_line_real']), Stages.SETUP_CNC_CSY)
+        self.add_fitted_feature('y_line_real', np.array(data['y_line_real']), Stages.SETUP_CNC_CSY)
+        self.add_fitted_feature('z_line_real', np.array(data['z_line_real']), Stages.SETUP_CNC_CSY)
     except Exception as e:
       logger.error("Exception loading real axes %s" % (e))
       raise e
@@ -2217,13 +2231,14 @@ class CalibManager:
         feat.addPoint(*pt)
 
       await self.client.GoTo((orig + float3(25,-25,150)).ToXYZString()).complete()
-      await self.client.GoTo("%s,Tool.A(0),Tool.B(0)" % ((orig + float3(0,FIXTURE_SIDE/2 + 5,FIXTURE_SIDE/2+5)).ToXYZString())).complete()
+      await self.client.GoTo("Tool.A(30),Tool.B(180)").complete()
+      await self.client.GoTo("%s,Tool.A(30),Tool.B(180)" % ((orig + float3(0,FIXTURE_SIDE/2 + 5,FIXTURE_SIDE/2+5)).ToXYZString())).complete()
       meas_pos = orig + float3(0,FIXTURE_SIDE/2,FIXTURE_SIDE/2-15)
-      await self.client.GoTo("%s,Tool.A(0),Tool.B(0)" % ((meas_pos + float3(0,5,0)).ToXYZString())).complete()
+      await self.client.GoTo("%s,Tool.A(30),Tool.B(180)" % ((meas_pos + float3(0,5,0)).ToXYZString())).complete()
       ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % (meas_pos.ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       feat.addPoint(*pt)
-      await self.client.GoTo("%s,Tool.A(0),Tool.B(0)" % ((orig + float3(0,FIXTURE_SIDE/2 + 5,-(FIXTURE_SIDE/2-15))).ToXYZString())).complete()
+      await self.client.GoTo("%s,Tool.A(30),Tool.B(180)" % ((orig + float3(0,FIXTURE_SIDE/2 + 5,-(FIXTURE_SIDE/2-15))).ToXYZString())).complete()
       ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % (measPos.ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       feat.addPoint(*pt)
