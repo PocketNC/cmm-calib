@@ -1127,9 +1127,7 @@ class CalibManager:
         logger.debug("Ran a STEP without entry in did_step_complete_stage")
         return (False, None)
     except Exception as e:
-      msg = "Exception in did_step_complete_stage %s" % str(e)
-      logger.debug(msg)
-      return err_msg(msg)
+      raise e
 
   '''
   the find_pos_ steps use the same methods as probe_ steps, 
@@ -1146,7 +1144,7 @@ class CalibManager:
 
     if not self.is_ready_for_step(step):
       logger.info('not ready for step')
-      return err_msg("1 or more prerequisite STAGES not complete before running STEP %s")
+      raise CalibException( err_msg("1 or more prerequisite STAGES not complete before running STEP %s"))
     step_method = getattr(self, step.name.lower())
     try:
       self.status['run_state'] = STATE_RUN
@@ -1506,7 +1504,7 @@ class CalibManager:
       waypoints['z_home'] = waypoints['z_home_50']
       self.machine_props = V2_50_PROPS
     else:
-      return err_msg("CMM calibration halting, Z MIN_LIMIT abnormal, doesn't correspond to known model of V2. Z MIN_LIMIT: %s" % z_min_limit_ini)
+      raise CalibException(err_msg("CMM calibration halting, Z MIN_LIMIT abnormal, doesn't correspond to known model of V2. Z MIN_LIMIT: %s" % z_min_limit_ini))
 
     return True
 
@@ -2119,9 +2117,7 @@ class CalibManager:
 
       await self.client.GoTo((orig + float3(0,0,50)).ToXYZString()).ack()
     except Exception as ex:
-      msg = "Exception in probe_spindle_tip %s" % str(ex)
-      logger.debug(msg)
-      return err_msg(msg)
+      raise ex
 
   async def experiment_with_cmm_movement(self):
     if self.config['skip_cmm']:
@@ -2168,9 +2164,7 @@ class CalibManager:
         feat.addPoint(*pt)
 
     except Exception as ex:
-      msg = "Exception in probe_home_offset_y %s" % str(ex)
-      logger.debug(msg)
-      return err_msg(msg)
+      raise ex
 
   async def probe_home_offset_x(self, x_pos_v2, y_pos_v2, z_pos_v2, ):
     '''
@@ -2202,9 +2196,7 @@ class CalibManager:
         feat.addPoint(*pt)
 
     except Exception as ex:
-      msg = "Exception in probe_home_offset_x %s" % str(ex)
-      logger.debug(msg)
-      return err_msg(msg)
+      raise ex
 
   async def probe_x(self, x_pos_v2, z_pos_v2):
     feat_name = "x_%+.4f" % x_pos_v2
