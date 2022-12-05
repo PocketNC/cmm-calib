@@ -496,22 +496,15 @@ waypoints_from_pocket_origin = {
 
   'b_rot_cent_approx': float3(-62.33, -111.87, -2.0),
   'a_rot_cent_approx': float3(-63.10, -46.0, -6.93),
+
+# Approximate center of ball after a homing sequence
   'z_home_50': float3(42.5, -49.25, -68.83),
-  'z_home_10': float3(72.0, -50.50, -68.83),
+  'z_home_10': float3(62.0, -50.50, -68.83),
+
   'fixture_ball': float3(-94.0, -114.7, -123.4),
   # 'fixture_ball': float3(-94.4, -107.0, -123.4),
   'probe_fixture_plane_a90': float3(-56.5, -93.5, -41.5),
   'cor': float3(-61.8, -112.4, -69.7)
-}
-
-waypoints_table_center = {
-  'top_l_bracket_back_right': float3(371.9, 466.8, 126.33),
-  'top_l_bracket_front_right': float3(358.2, 448.4, 126.33),
-  'probe_fixture_tip': float3(324.3, 318.9, 42.8),
-  'probe_fixture_tip_from_origin': float3(-48.5, -150.1, -73.0),
-  'b_rot_cent_approx': float3(297.87, 339.53, 126),
-  'a_rot_cent_approx': float3(295.1, 412.7, 119.4),
-  'z_home': float3(400.9,400.5,57.5),
 }
 
 waypoints_table = {
@@ -3644,7 +3637,7 @@ class CalibManager:
         await self.set_cmm_csy(self.part_csy)
 
       self.load_cnc_csy()
-      self.load_real_axes()
+#      self.load_real_axes()
 
       self.load_stage_progress(Stages.PROBE_TOP_PLANE, is_performing_stage=False)
       fixture_top_face = self.metrologyManager.getActiveFeatureSet().getFeature( self.feature_ids['fixture_top_face'] )
