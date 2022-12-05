@@ -496,22 +496,15 @@ waypoints_from_pocket_origin = {
 
   'b_rot_cent_approx': float3(-62.33, -111.87, -2.0),
   'a_rot_cent_approx': float3(-63.10, -46.0, -6.93),
+
+# Approximate center of ball after a homing sequence
   'z_home_50': float3(42.5, -49.25, -68.83),
-  'z_home_10': float3(72.0, -50.50, -68.83),
+  'z_home_10': float3(62.0, -50.50, -68.83),
+
   'fixture_ball': float3(-94.0, -114.7, -123.4),
   # 'fixture_ball': float3(-94.4, -107.0, -123.4),
   'probe_fixture_plane_a90': float3(-56.5, -93.5, -41.5),
   'cor': float3(-61.8, -112.4, -69.7)
-}
-
-waypoints_table_center = {
-  'top_l_bracket_back_right': float3(371.9, 466.8, 126.33),
-  'top_l_bracket_front_right': float3(358.2, 448.4, 126.33),
-  'probe_fixture_tip': float3(324.3, 318.9, 42.8),
-  'probe_fixture_tip_from_origin': float3(-48.5, -150.1, -73.0),
-  'b_rot_cent_approx': float3(297.87, 339.53, 126),
-  'a_rot_cent_approx': float3(295.1, 412.7, 119.4),
-  'z_home': float3(400.9,400.5,57.5),
 }
 
 waypoints_table = {
@@ -1143,9 +1136,7 @@ class CalibManager:
         logger.debug("Ran a STEP without entry in did_step_complete_stage")
         return (False, None)
     except Exception as e:
-      msg = "Exception in did_step_complete_stage %s" % str(e)
-      logger.debug(msg)
-      return err_msg(msg)
+      raise e
 
   '''
   the find_pos_ steps use the same methods as probe_ steps, 
@@ -1162,7 +1153,7 @@ class CalibManager:
 
     if not self.is_ready_for_step(step):
       logger.info('not ready for step')
-      return err_msg("1 or more prerequisite STAGES not complete before running STEP %s")
+      raise CalibException( err_msg("1 or more prerequisite STAGES not complete before running STEP %s"))
     step_method = getattr(self, step.name.lower())
     try:
       self.status['run_state'] = STATE_RUN
@@ -1522,7 +1513,7 @@ class CalibManager:
       waypoints['z_home'] = waypoints['z_home_50']
       self.machine_props = V2_50_PROPS
     else:
-      return err_msg("CMM calibration halting, Z MIN_LIMIT abnormal, doesn't correspond to known model of V2. Z MIN_LIMIT: %s" % z_min_limit_ini)
+      raise CalibException(err_msg("CMM calibration halting, Z MIN_LIMIT abnormal, doesn't correspond to known model of V2. Z MIN_LIMIT: %s" % z_min_limit_ini))
 
     return True
 
@@ -2135,9 +2126,7 @@ class CalibManager:
 
       await self.client.GoTo((orig + float3(0,0,50)).ToXYZString()).ack()
     except Exception as ex:
-      msg = "Exception in probe_spindle_tip %s" % str(ex)
-      logger.debug(msg)
-      return err_msg(msg)
+      raise ex
 
   async def experiment_with_cmm_movement(self):
     if self.config['skip_cmm']:
@@ -2200,9 +2189,7 @@ class CalibManager:
       logger.debug('probe_home_offset_y end')
 
     except Exception as ex:
-      msg = "Exception in probe_home_offset_y %s" % str(ex)
-      logger.debug(msg)
-      return err_msg(msg)
+      raise ex
 
   async def probe_home_offset_x(self, y_pos_v2, a_pos_v2, b_pos_v2):
     '''
@@ -2256,9 +2243,7 @@ class CalibManager:
       
 
     except Exception as ex:
-      msg = "Exception in probe_home_offset_x %s" % str(ex)
-      logger.debug(msg)
-      return err_msg(msg)
+      raise ex
 
   async def probe_x(self, x_pos_v2, z_pos_v2):
     feat_name = "x_%+.4f" % x_pos_v2
@@ -3667,7 +3652,7 @@ class CalibManager:
         await self.set_cmm_csy(self.part_csy)
 
       self.load_cnc_csy()
-      self.load_real_axes()
+#      self.load_real_axes()
 
       self.load_stage_progress(Stages.PROBE_TOP_PLANE, is_performing_stage=False)
       fixture_top_face = self.metrologyManager.getActiveFeatureSet().getFeature( self.feature_ids['fixture_top_face'] )
