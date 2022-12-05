@@ -292,6 +292,7 @@ class Steps(Enum):
   FIND_POS_A = auto() 
   FIND_POS_B = auto()
   FIND_POS_FIXTURE_REL_Y_PERP = auto()
+  FIND_POS_FIXTURE_REL_X_PERP = auto()
   CALC_CALIB = auto()
   WRITE_CALIB = auto()
   '''verification steps'''
@@ -750,7 +751,7 @@ class CalibManager:
       return self.metrologyManager.getActiveFeatureSet().getFeature(fid)
     except Exception as e:
       logger.error("Feature %s not present" % feature_name)
-      return e
+      raise e
 
   def clear_features(self):
     self.metrologyManager = metrology.FeatureManager.getInstance()
@@ -995,6 +996,7 @@ class CalibManager:
       with open(REAL_AXES_SAVE_FILENAME, 'r') as f:
         data = json.loads(f.read())
         self.real_axes['y'] = np.array(data['y_line_real'])
+        self.real_axes['x'] = np.array(data['x_line_real'])
         logger.debug(self.real_axes)
     except Exception as e:
       logger.error("Exception loading real axes %s" % (e))
@@ -2140,60 +2142,97 @@ class CalibManager:
     with A at ~90 and B rotated so top/bottom faces are perpendicular to Y-axis
     '''
     try:
-      try:
+      logger.debug('probe_home_offset_y 1')
+
+      if 'home_offset_y' in self.feature_ids:
         feat = self.get_feature('home_offset_y')
-      except Exception as e:
+      else:
         feat = self.add_feature('home_offset_y', Stages.PROBE_HOME_OFFSET)
-      
-      orig = waypoints['cor'] + float3(0,0,-(y_pos_v2))
-      await self.client.GoTo((orig + float3(100,0,100)).ToXYZString()).complete()
-      
+      logger.debug('probe_home_offset_y 2')
+
+      await self.client.GoTo("Tool.Alignment(1,0,0)").complete()
+      logger.debug('probe_home_offset_y 3')
+
+      orig = waypoints['cor'] + float3(0,0,-(y_pos_v2)) 
       start_pos = orig + float3(0,FIXTURE_SIDE/2,FIXTURE_SIDE/2)
+      await self.client.GoTo((start_pos + float3(25,0,25)).ToXYZString()).complete()
+
       drive_vec = float3(0,-1,0)
       face_norm = float3(0,0,1)
-      points_top = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,1)
+      points = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,-1,1)
       for pt in points:
         feat.addPoint(*pt)
 
-      await self.client.GoTo((orig + float3(100,0,0)).ToXYZString()).complete()
-      start_pos = orig + float3(0,FIXTURE_SIDE/2,-FIXTURE_SIDE/2)
-      drive_vec = float3(0,-1,0)
-      face_norm = float3(0,0,-1)
-      points_bottom = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,1)
-      for pt in points:
-        feat.addPoint(*pt)
+      await self.client.GoTo("%s,Tool.A(90),Tool.B(120)" % ((orig + float3(0,-150,FIXTURE_SIDE/2 + 10)).ToXYZString())).complete()
+      await self.client.GoTo("%s,Tool.A(90),Tool.B(120)" % ((orig + float3(0,-150,-(FIXTURE_SIDE/2 + 10))).ToXYZString())).complete()
+      meas_pos = orig + float3(0,-(FIXTURE_SIDE/2 - 15),-(FIXTURE_SIDE/2))
+      await self.client.GoTo("%s,Tool.A(90),Tool.B(120)" % ((meas_pos + float3(0,0,-5)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,0,-1)" % (meas_pos.ToXYZString())).data()
+      pt = float3.FromXYZString(ptMeas.data_list[0])
+      feat.addPoint(*pt)
+      
+      meas_pos = orig + float3(0,(FIXTURE_SIDE/2 - 15),-(FIXTURE_SIDE/2))
+      await self.client.GoTo("%s,Tool.A(90),Tool.B(120)" % ((meas_pos + float3(0,0,-5)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,0,-1)" % (meas_pos.ToXYZString())).data()
+      pt = float3.FromXYZString(ptMeas.data_list[0])
+      feat.addPoint(*pt)
+      
+      await self.go_to_clearance_y()
+
+      logger.debug('probe_home_offset_y end')
 
     except Exception as ex:
       raise ex
 
-  async def probe_home_offset_x(self, x_pos_v2, y_pos_v2, z_pos_v2, ):
+  async def probe_home_offset_x(self, y_pos_v2, a_pos_v2, b_pos_v2):
     '''
     Probe side faces of fixture 
     with A at ~90 and B rotated so side faces are perpendicular to X-axis
     '''
     try:
-      try:
+      logger.debug('probe_home_offset_x 1')
+      if 'home_offset_x' in self.feature_ids:
         feat = self.get_feature('home_offset_x')
-      except Exception as e:
+      else:
         feat = self.add_feature('home_offset_x', Stages.PROBE_HOME_OFFSET)
+      logger.debug('probe_home_offset_x 2')
       
+      await self.client.GoTo("Tool.Alignment(1,0,0)").complete()
+      logger.debug('probe_home_offset_x 3')
+
       orig = waypoints['cor']
-      await self.client.GoTo((orig + float3(100,0,100)).ToXYZString()).complete()
-      
       start_pos = orig + float3(0,-FIXTURE_SIDE/2,FIXTURE_SIDE/2)
+      await self.client.GoTo((start_pos + float3(25,-25,25)).ToXYZString()).complete()
+      
       drive_vec = float3(0,0,-1)
       face_norm = float3(0,-1,0)
-      points_top = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,1)
+      points = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,-1,1)
       for pt in points:
         feat.addPoint(*pt)
 
-      await self.client.GoTo((orig + float3(100,0,0)).ToXYZString()).complete()
-      start_pos = orig + float3(0,FIXTURE_SIDE/2,FIXTURE_SIDE/2)
-      drive_vec = float3(0,0,-1)
-      face_norm = float3(0,1,0)
-      points_bottom = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,1)
-      for pt in points:
-        feat.addPoint(*pt)
+      await self.client.GoTo((orig + float3(25,-25,150)).ToXYZString()).complete()
+      await self.client.GoTo("%s,Tool.A(0),Tool.B(0)" % ((orig + float3(0,FIXTURE_SIDE/2 + 5,FIXTURE_SIDE/2+5)).ToXYZString())).complete()
+      meas_pos = orig + float3(0,FIXTURE_SIDE/2,FIXTURE_SIDE/2-15)
+      await self.client.GoTo("%s,Tool.A(0),Tool.B(0)" % ((meas_pos + float3(0,5,0)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % (meas_pos.ToXYZString())).data()
+      pt = float3.FromXYZString(ptMeas.data_list[0])
+      feat.addPoint(*pt)
+      await self.client.GoTo("%s,Tool.A(0),Tool.B(0)" % ((orig + float3(0,FIXTURE_SIDE/2 + 5,-(FIXTURE_SIDE/2-15))).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % (measPos.ToXYZString())).data()
+      pt = float3.FromXYZString(ptMeas.data_list[0])
+      feat.addPoint(*pt)
+      
+      await self.go_to_clearance_z()
+      logger.debug('probe_home_offset_x end')
+
+      # #TODO clearance to reach inner side of fixture
+      # start_pos = orig + float3(0,FIXTURE_SIDE/2,FIXTURE_SIDE/2)
+      # drive_vec = float3(0,0,-1)
+      # face_norm = float3(0,1,0)
+      # points_bottom = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,1,1)
+      # for pt in points:
+      #   feat.addPoint(*pt)
+      
 
     except Exception as ex:
       raise ex
@@ -2437,7 +2476,8 @@ class CalibManager:
         if self.config['table_slot'] == "front_right":
           points = await routines.headprobe_line_yz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,3,1)
         else:
-          points = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,3,1)
+          #TODO test this, has not been tested since adding head_position arg to headprobe_line_xz
+          points = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,3,1,1)
         for pt in points:
           a_line.addPoint(*pt)
       except CmmException as e:
@@ -2796,12 +2836,12 @@ class CalibManager:
 
       await self.client.GoTo("Tool.Alignment(1,0,0)").complete()
       
-      orig = waypoints['cor']
+      orig = waypoints['cor'] + float3(0,0,-(y_pos_v2)) 
       start_pos = orig + float3(0,FIXTURE_SIDE/2,FIXTURE_SIDE/2)
       await self.client.GoTo((start_pos + float3(25, 0, 25)).ToXYZString()).complete()
 
       drive_vec = float3(0,-1,0)
-      face_norm = float3(0,0,-1)
+      face_norm = float3(0,0,1)
       points = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,-1,1)
       for pt in points:
         feat.addPoint(*pt)
@@ -2838,12 +2878,14 @@ class CalibManager:
       await self.client.GoTo("Tool.Alignment(1,0,0)").complete()
 
       orig = waypoints['cor']
-      start_pos = orig + float3(0,FIXTURE_SIDE/2,FIXTURE_SIDE/2)
-      await self.client.GoTo((start_pos + float3(25, 25, 0)).ToXYZString()).complete()
+      start_pos = orig + float3(0,-FIXTURE_SIDE/2,FIXTURE_SIDE/2)
+      await self.client.GoTo((start_pos + float3(25, -25, 25)).ToXYZString()).complete()
 
       drive_vec = float3(0,0,-1)
       face_norm = float3(0,-1,0)
-      points_top = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,1)
+      logger.debug('find_pos_fixture_rel_x_perp 1')
+      points = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,-1,1)
+      logger.debug('find_pos_fixture_rel_x_perp 2')
       for pt in points:
         feat.addPoint(*pt)
       name_feat_proj = self.project_feats_to_plane([feat_name], self.cnc_csy.orig,self.cnc_csy.z_dir)[0]
@@ -2856,12 +2898,12 @@ class CalibManager:
       vec_cnccsy = np.matmul(self.cmm2cnc, np.append(vec, 0))
       dir_x_line_real = self.fitted_features['x_line_real']['norm']
       dir_x_line_real_cnccsy = np.matmul(self.cmm2cnc, np.append(dir_x_line_real, 0))
-      angle_rel_x = angle_between_ccw_2d([vec_cnccsy[0],vec_cnccsy[1]],[dir_x_line_real_cnccsy[0],dir_x_line_real_cnccsy[1]])
+      angle_rel_x = angle_between_ccw_2d([dir_x_line_real_cnccsy[0],dir_x_line_real_cnccsy[1]],[vec_cnccsy[0],vec_cnccsy[1]])
       logger.debug('angle_rel_x %s' % (angle_rel_x,))
-      return angle_rel_x - 90
+      return angle_rel_x + 90
 
     except Exception as ex:
-      logger.error("find_pos_fixture_rel_y_perp exception: %s" % str(ex))
+      logger.error("find_pos_fixture_rel_x_perp exception: %s" % str(ex))
       raise ex
 
   async def set_tool_probe_z(self, tool_probe_z):
