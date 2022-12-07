@@ -186,8 +186,8 @@ Z_ORIGIN = 400
 CMM_ORIGIN = float3(X_ORIGIN,Y_ORIGIN,Z_ORIGIN)
 
 FIXTURE_BALL_DIA = 6.35
-SPINDLE_BALL_DIA = 6.35
-Z_BALL_DIA = 6.35
+
+Z_BALL_DIA = 12.69792
 PROBE_DIA = 4
 CMM_SPEED = 500
 CMM_ACCEL = 450
@@ -499,7 +499,7 @@ waypoints_from_pocket_origin = {
 
 # Approximate center of ball after a homing sequence
   'z_home_50': float3(42.5, -49.25, -68.83),
-  'z_home_10': float3(62.0, -50.50, -68.83),
+  'z_home_10': float3(54.6, -50.50, -68.83),
 
   'fixture_ball': float3(-94.0, -114.7, -123.4),
   # 'fixture_ball': float3(-94.4, -107.0, -123.4),
@@ -932,7 +932,7 @@ class CalibManager:
         y_dir = np.array(data['y_dir']) if data['y_dir'] else None
         z_dir = np.array(data['z_dir']) if data['z_dir'] else None
         euler = np.array(data['euler']) if data['euler'] else None
-        logger.debug('setting cnc_csy')
+        logger.debug('setting part_csy')
         logger.debug("(%s, %s, %s, %s, %s)" % (orig, x_dir, y_dir, z_dir, euler))
         part_csy = Csy(orig, x_dir, y_dir, z_dir, euler)
         self.add_state('part_csy', part_csy, Stages.SETUP_PART_CSY)
@@ -955,6 +955,7 @@ class CalibManager:
       # data['z_norm'] = self.z_norm.tolist()
       # data['cmm2cnc'] = self.cmm2cnc.tolist()
       data = self.cnc_csy.to_json_dict()
+      logger.debug('saving cnc csy %s' % (str(data),))
       with open(CNC_CSY_SAVE_FILENAME, 'w') as f:
         f.write( json.dumps(data, cls=CalibEncoder) )
     except Exception as e:
@@ -1617,7 +1618,7 @@ class CalibManager:
       #fit sphere to feature, use for more accurate waypoint
       try:
         (radius, pos) = feature.sphere()
-        if abs(radius*2 - (Z_BALL_DIA+PROBE_DIA)) > 0.0254:
+        if abs(radius*2 - (FIXTURE_BALL_DIA+PROBE_DIA)) > 0.0254:
           raise CalibException("Unexpected spindle tip sphere diameter %s" % (radius*2))
         pos = pos + float3(0,0,(y_pos_v2 - 63.5))
         self.add_fitted_feature(FEAT_FIXTURE_SPHERE, {'pos': pos, 'radius': radius}, Stages.PROBE_FIXTURE_BALL_POS)
@@ -1659,7 +1660,7 @@ class CalibManager:
       feat_spindle_at_tool_probe = self.metrologyManager.getActiveFeatureSet().getFeature( self.feature_ids['spindle_at_tool_probe'] )
       (rad, pos_spindle_at_tool_probe) = feat_spindle_at_tool_probe.sphere()
       if abs(rad*2 - (Z_BALL_DIA+PROBE_DIA)) > 0.0254:
-        raise CalibException("Deviation in best-fit spindle-tip sphere. Diameter %s" % (radius*2))
+        raise CalibException("Deviation in best-fit spindle-tip sphere. Diameter %s" % (rad*2))
       feat_fixture_plane_a90 = self.metrologyManager.getActiveFeatureSet().getFeature( self.feature_ids['fixture_plane_a90'] )
       (pos_fixture_a90, norm_fixture_a90) = feat_fixture_plane_a90.plane()
 
@@ -2161,12 +2162,12 @@ class CalibManager:
       logger.debug('probe_home_offset_y 3')
 
       orig = waypoints['cor'] + float3(0,0,-(y_pos_v2)) 
-      start_pos = orig + float3(0,FIXTURE_SIDE/2,FIXTURE_SIDE/2)
+      start_pos = orig + float3(-5,FIXTURE_SIDE/2-15,FIXTURE_SIDE/2)
       await self.client.GoTo((start_pos + float3(25,0,25)).ToXYZString()).complete()
 
       drive_vec = float3(0,-1,0)
       face_norm = float3(0,0,1)
-      points = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,-1,1)
+      points = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,-1,1, 75)
       for pt in points:
         feat.addPoint(*pt)
 
@@ -2208,7 +2209,7 @@ class CalibManager:
       logger.debug('probe_home_offset_x 3')
 
       orig = waypoints['cor']
-      start_pos = orig + float3(0,-FIXTURE_SIDE/2,FIXTURE_SIDE/2)
+      start_pos = orig + float3(-5,-FIXTURE_SIDE/2,FIXTURE_SIDE/2-15)
       await self.client.GoTo((start_pos + float3(25,-25,25)).ToXYZString()).complete()
       
       drive_vec = float3(0,0,-1)
@@ -2217,16 +2218,17 @@ class CalibManager:
       for pt in points:
         feat.addPoint(*pt)
 
-      await self.client.GoTo((orig + float3(25,-25,150)).ToXYZString()).complete()
-      await self.client.GoTo("Tool.A(30),Tool.B(180)").complete()
-      await self.client.GoTo("%s,Tool.A(30),Tool.B(180)" % ((orig + float3(0,FIXTURE_SIDE/2 + 5,FIXTURE_SIDE/2+5)).ToXYZString())).complete()
+      await self.client.GoTo((start_pos + float3(25,-25,150)).ToXYZString()).complete()
+      await self.client.GoTo("Tool.A(55),Tool.B(177)").complete()
+      await self.client.GoTo("%s,Tool.A(55),Tool.B(177)" % ((orig + float3(0,FIXTURE_SIDE/2 + 5,FIXTURE_SIDE/2+5)).ToXYZString())).complete()
       meas_pos = orig + float3(0,FIXTURE_SIDE/2,FIXTURE_SIDE/2-15)
-      await self.client.GoTo("%s,Tool.A(30),Tool.B(180)" % ((meas_pos + float3(0,5,0)).ToXYZString())).complete()
+      await self.client.GoTo("%s,Tool.A(55),Tool.B(177)" % ((meas_pos + float3(0,5,0)).ToXYZString())).complete()
       ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % (meas_pos.ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       feat.addPoint(*pt)
-      await self.client.GoTo("%s,Tool.A(30),Tool.B(180)" % ((orig + float3(0,FIXTURE_SIDE/2 + 5,-(FIXTURE_SIDE/2-15))).ToXYZString())).complete()
-      ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % (measPos.ToXYZString())).data()
+      meas_pos = orig + float3(0,FIXTURE_SIDE/2,-(FIXTURE_SIDE/2-15))
+      await self.client.GoTo("%s,Tool.A(55),Tool.B(177)" % ((meas_pos + float3(0,5,0)).ToXYZString())).complete()
+      ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % (meas_pos.ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       feat.addPoint(*pt)
       
@@ -2341,7 +2343,7 @@ class CalibManager:
       (rad, pos) = feat.sphere()
       self.add_fitted_feature(feat_name, {'pos': pos, 'radius': rad}, Stages.HOMING_Y)
       if abs(rad*2 - (FIXTURE_BALL_DIA+PROBE_DIA)) > 0.0254: #TODO qualify the actual sphere
-        raise CalibException("Deviation in best-fit fixture sphere. Diameter %s" % (radius*2))
+        raise CalibException("Deviation in best-fit fixture sphere. Diameter %s" % (rad*2))
       home_positions.append(pos)
     avg_home_pos = np.mean(home_positions, axis=0)
     max_dist = 0
@@ -2406,8 +2408,8 @@ class CalibManager:
       feat = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
       (rad, pos) = feat.sphere()
       self.add_fitted_feature(feat_name, {'pos': pos, 'radius': rad}, Stages.HOMING_Z)
-      if abs(rad*2 - (FIXTURE_BALL_DIA+PROBE_DIA)) > 0.0254: #TODO qualify the actual sphere
-        raise CalibException("Deviation in best-fit fixture sphere. Diameter %s" % (radius*2))
+      if abs(rad*2 - (Z_BALL_DIA+PROBE_DIA)) > 0.0254: #TODO qualify the actual sphere
+        raise CalibException("Deviation in best-fit fixture sphere. Diameter %s" % (rad*2))
       home_positions.append(pos)
     avg_home_pos = np.mean(home_positions, axis=0)
     max_dist = 0
@@ -2845,12 +2847,12 @@ class CalibManager:
       await self.client.GoTo("Tool.Alignment(1,0,0)").complete()
       
       orig = waypoints['cor'] + float3(0,0,-(y_pos_v2)) 
-      start_pos = orig + float3(0,FIXTURE_SIDE/2,FIXTURE_SIDE/2)
+      start_pos = orig + float3(-5,FIXTURE_SIDE/2-15,FIXTURE_SIDE/2)
       await self.client.GoTo((start_pos + float3(25, 0, 25)).ToXYZString()).complete()
 
       drive_vec = float3(0,-1,0)
       face_norm = float3(0,0,1)
-      points = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,-1,1)
+      points = await routines.headprobe_line_xz(self.client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,-1,1, 75)
       for pt in points:
         feat.addPoint(*pt)
       name_feat_proj = self.project_feats_to_plane([feat_name], self.cnc_csy.orig,self.cnc_csy.z_dir)[0]
@@ -2886,7 +2888,7 @@ class CalibManager:
       await self.client.GoTo("Tool.Alignment(1,0,0)").complete()
 
       orig = waypoints['cor']
-      start_pos = orig + float3(0,-FIXTURE_SIDE/2,FIXTURE_SIDE/2)
+      start_pos = orig + float3(-5,-FIXTURE_SIDE/2,FIXTURE_SIDE/2-15)
       await self.client.GoTo((start_pos + float3(25, -25, 25)).ToXYZString()).complete()
 
       drive_vec = float3(0,0,-1)
@@ -3034,7 +3036,9 @@ class CalibManager:
       p2m_construct = np.array([dir_x,dir_y,dir_z,orig])
       p2m = np.vstack((p2m_construct.transpose(),[0,0,0,1]))
       cmm2cnc = np.linalg.inv(p2m)
+      logger.debug('cmm2cnc %s' % (cmm2cnc,))
       cnc_csy = Csy(orig, dir_x, dir_y, dir_z, None)
+      logger.debug('calculated cnc_csy %s %s %s %s' % (cnc_csy.orig, cnc_csy.x_dir, cnc_csy.y_dir, cnc_csy.z_dir))
       self.add_state('cnc_csy', cnc_csy, Stages.SETUP_CNC_CSY)
       self.add_state('dir_x', dir_x, Stages.SETUP_CNC_CSY)
       self.add_state('dir_y', dir_y, Stages.SETUP_CNC_CSY)
@@ -3538,6 +3542,7 @@ class CalibManager:
     try:
       logger.debug("Linear Axes Offsets")
       self.calc_offsets(feat_a_circle, feat_b_circle)
+      self.calc_home_offsets()
     except Exception as ex:
       logger.error("calc_calib exception (in linear results): %s" % str(ex))
       raise ex
@@ -3652,7 +3657,7 @@ class CalibManager:
         await self.set_cmm_csy(self.part_csy)
 
       self.load_cnc_csy()
-#      self.load_real_axes()
+      self.load_real_axes()
 
       self.load_stage_progress(Stages.PROBE_TOP_PLANE, is_performing_stage=False)
       fixture_top_face = self.metrologyManager.getActiveFeatureSet().getFeature( self.feature_ids['fixture_top_face'] )
@@ -3772,6 +3777,7 @@ class CalibManager:
 
     try:
       self.calc_offsets(feat_a_verify_circle, feat_b_verify_circle)
+      self.calc_home_offsets()
     except Exception as ex:
       logger.error("calc_verify exception (offsets): %s" % str(ex))
       raise ex
@@ -3877,6 +3883,65 @@ class CalibManager:
     return True
 
 
+  def calc_home_offset_x(self):
+    x_vals = []
+    feat_x = self.get_feature("home_offset_x")
+    logger.debug('feat_x %s' % (feat_x.points(),))
+    for pt in feat_x.points():
+      pt_cnccsy = np.matmul(self.cmm2cnc,np.append(pt,1))
+      
+      x_vals.append(pt_cnccsy[0])
+    x_avg = np.array(x_vals).mean()
+    logger.debug('x_vals %s' % (x_vals,))
+    logger.debug('x_avg %s' % (x_avg,))
+
+    feat_x_line = self.get_feature("x_line")
+    logger.debug('x line points %s' % (feat_x_line.points(),))
+    pos_x0_partcsy = feat_x_line.points()[0]
+    logger.debug('pos_x0_partcsy %s' % (pos_x0_partcsy,))
+    logger.debug('x home data %s ' % (self.status['x_home'],))
+    vec_avg_x_home_to_last_x_home_partcsy = pos_x0_partcsy - self.status['x_home']['avg_pos']
+    
+    pos_z_home_partcsy = self.status['z_home']['avg_pos']
+    logger.debug('pos_z_home_partcsy %s ' % (pos_z_home_partcsy,))
+
+    pos_z_home_offset_by_x_homing_variation_partcsy = pos_z_home_partcsy + vec_avg_x_home_to_last_x_home_partcsy
+    pos_z_home_offset_by_x_homing_variation_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_z_home_offset_by_x_homing_variation_partcsy,1))
+    x_offset_err = x_avg - pos_z_home_offset_by_x_homing_variation_cnccsy[0]
+    logger.debug('active_offsets x %s' % (self.active_offsets['x']))
+    logger.debug('x_offset_err %s' % (x_offset_err))
+    self.offsets['x'] = self.active_offsets['x'] + (x_offset_err/25.4)
+
+  def calc_home_offset_y(self):
+    y_vals = []
+    feat_y = self.get_feature("home_offset_y")
+    logger.debug('feat_y %s' % (feat_y.points(),))
+    for pt in feat_y.points():
+      pt_cnccsy = np.matmul(self.cmm2cnc,np.append(pt,1))
+      y_vals.append(pt_cnccsy[1])
+    y_avg = np.array(y_vals).mean()
+    logger.debug('y_vals %s' % (y_vals,))
+    logger.debug('y_avg %s' % (y_avg,))
+    pos_z_home_partcsy = self.status['z_home']['avg_pos']
+    pos_z_home_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_z_home_partcsy,1))
+    y_offset_err = y_avg - pos_z_home_cnccsy[1]
+    logger.debug('active_offsets y %s' % (self.active_offsets['y']))
+    logger.debug('y_offset_err %s' % (y_offset_err))
+    self.offsets['y'] = self.active_offsets['y'] + (y_offset_err)/25.4
+
+
+  def calc_home_offsets(self):
+    try:
+      logger.debug('self.cmm2cnc %s' % (str(self.cmm2cnc)))
+      self.calc_home_offset_x()
+      logger.debug("x home offset %s " % (self.offsets['x']))
+      self.calc_home_offset_y()
+      logger.debug("y home offset %s " % (self.offsets['y']))
+    except Exception as ex:
+      logger.error("calc_offsets exception (in b table offset): %s" % str(ex))
+      raise ex
+
+    return True
 
   async def write_verify(self):
     '''
