@@ -278,6 +278,7 @@ class Steps(Enum):
   TOOL_PROBE_OFFSET = auto()
   PROBE_HOME_OFFSET_X = auto()
   PROBE_HOME_OFFSET_Y = auto()
+  CALC_HOME_OFFSETS = auto()
   PROBE_X = auto() 
   PROBE_Y = auto()
   PROBE_Z = auto()
@@ -338,7 +339,7 @@ class Stages(Enum):
   RESTART_CNC: auto()
   SETUP_VERIFY = auto()
   TOOL_PROBE_OFFSET = auto()
-  PROBE_HOME_OFFSET = auto()
+  PROBE_HOME_OFFSETS = auto()
   VERIFY_A_HOMING = auto()
   VERIFY_B_HOMING = auto()
   VERIFY_A = auto()
@@ -1120,6 +1121,8 @@ class CalibManager:
           return (False, Stages.CHARACTERIZE_Z)
       elif step is Steps.CALC_CALIB:
         return (self.std_stage_complete_check(ret), Stages.CALC_CALIB)
+      elif step is Steps.CALC_HOME_OFFSETS:
+        return (self.std_stage_complete_check(ret), Stages.PROBE_HOME_OFFSETS)
       elif step is Steps.WRITE_CALIB:
         return (self.std_stage_complete_check(ret), Stages.WRITE_CALIB)
       elif step is Steps.SETUP_VERIFY:
@@ -1190,6 +1193,9 @@ class CalibManager:
         elif stage_for_step is Stages.VERIFY_B:
           self.stage_state.setdefault(Stages.VERIFY_B, {})
           self.stage_state[Stages.VERIFY_B]['b_verify_probes'] = self.b_verify_probes
+        elif stage_for_step is Stages.PROBE_HOME_OFFSETS:
+          self.stage_state.setdefault(Stages.PROBE_HOME_OFFSETS, {})
+          self.stage_state[Stages.PROBE_HOME_OFFSETS]['offsets'] = self.offsets
         self.save_progress_for_stage(stage_for_step)
         #putting this in an if statement because maybe some steps will be run again 
         #AFTER their 'normal' stage is completed
@@ -3549,7 +3555,6 @@ class CalibManager:
     try:
       logger.debug("Linear Axes Offsets")
       self.calc_offsets(feat_a_circle, feat_b_circle)
-      self.calc_home_offsets()
     except Exception as ex:
       logger.error("calc_calib exception (in linear results): %s" % str(ex))
       raise ex
@@ -3784,7 +3789,6 @@ class CalibManager:
 
     try:
       self.calc_offsets(feat_a_verify_circle, feat_b_verify_circle)
-      self.calc_home_offsets()
     except Exception as ex:
       logger.error("calc_verify exception (offsets): %s" % str(ex))
       raise ex
@@ -3937,7 +3941,7 @@ class CalibManager:
     self.offsets['y'] = self.active_offsets['y'] + (y_offset_err)/25.4
 
 
-  def calc_home_offsets(self):
+  async def calc_home_offsets(self):
     try:
       logger.debug('self.cmm2cnc %s' % (str(self.cmm2cnc)))
       self.calc_home_offset_x()
