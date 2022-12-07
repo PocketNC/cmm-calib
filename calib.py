@@ -1640,7 +1640,14 @@ class CalibManager:
       feat_name = "spindle_at_tool_probe"
       feat = self.add_feature(feat_name, Stages.TOOL_PROBE_OFFSET)
       (x,y,z) = readXYZ()
+      logger.debug("Tool probe button tripped at %s, %s, %s", x, y, z)
       await self.probe_spindle_tip(x, z, feat)
+      sphere = feat.sphere()
+      logger.debug("Spindle sphere: %s", sphere)
+
+      z_dir = self.cnc_csy.z_dir
+      logger.debug("Tip: %s", sphere[1]-(sphere[0]-PROBE_DIA*.5)*z_dir)
+
       return True
     except Exception as ex:
       logger.debug("probe_spindle_at_tool_probe exception %s" % str(ex))
@@ -2221,12 +2228,12 @@ class CalibManager:
       await self.client.GoTo((start_pos + float3(25,-25,150)).ToXYZString()).complete()
       await self.client.GoTo("Tool.A(55),Tool.B(177)").complete()
       await self.client.GoTo("%s,Tool.A(55),Tool.B(177)" % ((orig + float3(0,FIXTURE_SIDE/2 + 5,FIXTURE_SIDE/2+5)).ToXYZString())).complete()
-      meas_pos = orig + float3(0,FIXTURE_SIDE/2,FIXTURE_SIDE/2-15)
+      meas_pos = orig + float3(2,FIXTURE_SIDE/2,FIXTURE_SIDE/2-15)
       await self.client.GoTo("%s,Tool.A(55),Tool.B(177)" % ((meas_pos + float3(0,5,0)).ToXYZString())).complete()
       ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % (meas_pos.ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
       feat.addPoint(*pt)
-      meas_pos = orig + float3(0,FIXTURE_SIDE/2,-(FIXTURE_SIDE/2-15))
+      meas_pos = orig + float3(2,FIXTURE_SIDE/2,-(FIXTURE_SIDE/2-15))
       await self.client.GoTo("%s,Tool.A(55),Tool.B(177)" % ((meas_pos + float3(0,5,0)).ToXYZString())).complete()
       ptMeas = await self.client.PtMeas("%s,IJK(0,1,0)" % (meas_pos.ToXYZString())).data()
       pt = float3.FromXYZString(ptMeas.data_list[0])
