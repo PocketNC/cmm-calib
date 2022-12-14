@@ -70,79 +70,8 @@ def write_feat_file(s):
 aCompFileName = os.path.join(POCKETNC_VAR_DIR, "calib/a.comp")
 bCompFileName = os.path.join(POCKETNC_VAR_DIR, "calib/b.comp")
 
-
 def err_msg(msg):
   return "CMM_CALIB_ERROR: %s" % msg
-
-def find_line_intersect_2d(line1, line2):
-    xdiff = (line1[0][0] - line1[1][0], line2[0][0] - line2[1][0])
-    ydiff = (line1[0][1] - line1[1][1], line2[0][1] - line2[1][1])
-
-    def det(a, b):
-        return a[0] * b[1] - a[1] * b[0]
-
-    div = det(xdiff, ydiff)
-    if div == 0:
-       raise Exception('lines do not intersect')
-
-    d = (det(*line1), det(*line2))
-    x = det(d, xdiff) / div
-    y = det(d, ydiff) / div
-    return x, y
-
-def find_line_intersect(p1,v1,p2,v2):
-  v1 = np.array(v1[0:2])
-  v2 = np.array(v2[0:2])
-  p1 = np.array(p1[0:2])
-  p2 = np.array(p2[0:2])
-
-  v12 = p1 - p2
-  v1_perp = np.array([-v1[1], v1[0]])
-  denom = np.dot(v1_perp, v2)
-  num = np.dot(v1_perp, v12)
-  return (num / denom.astype(float))*v2 + p2
-
-'''
-Following two methods (unit_vector and angle_between) adapted from:
-https://stackoverflow.com/questions/2827393/angles-between-two-n-dimensional-vectors-in-python
-'''
-def unit_vector(vector):
-    """ Returns the unit vector of the vector.  """
-    return vector / np.linalg.norm(vector)
-
-def angle_between(v1, v2):
-    """ Returns the angle in degrees between vectors 'v1' and 'v2'::
-            >>> angle_between((1, 0, 0), (0, 1, 0))
-            180/pi * 1.5707963267948966
-            >>> angle_between((1, 0, 0), (1, 0, 0))
-            180/pi * 0.0
-            >>> angle_between((1, 0, 0), (-1, 0, 0))
-            180/pi * 3.141592653589793
-    """
-    v1_u = unit_vector(v1)
-    v2_u = unit_vector(v2)
-    return (180/math.pi)*np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
-
-def angle_between_ccw_2d(v1,v2):
-  logger.debug('angle_between_ccw_2d %s %s' % (v1, v2))
-  dot = v1[0] * v2[0] + v1[1] * v2[1]
-  det = v1[0] * v2[1] - v1[1] * v2[0]
-  return math.atan2(det,dot) * 180/math.pi
-
-def line_plane_intersect(dir_line, pt_line, dir_plane, pt_plane):
-  dir_line = np.array(dir_line)
-  dir_line = np.array(pt_line)
-  dir_line = np.array(dir_plane)
-  dir_line = np.array(pt_plane)
-
-  norm_dot_vec = np.dot(dir_plane, dir_line)
-  if( abs(norm_dot_vec) < EPSILON):
-    raise CalibException("line and plane do not intersect")
-
-  w = pt_line - pt_plane
-  si = -np.dot(dir_plane, w) / norm_dot_vec
-  pos_intersect = w + si * dir_line + pt_plane
-  return pos_intersect
 
 class CalibException(Exception):
   pass
@@ -568,8 +497,6 @@ Characterize B motion
 '''
 
 calibManagerInstance = None
-
-# ctx = Context.instance()
 
 class Csy:
   def __init__(self, orig, x_dir, y_dir, z_dir, euler):
@@ -1128,6 +1055,8 @@ class CalibManager:
           return (False, Stages.CHARACTERIZE_Z)
       elif step is Steps.CALC_CALIB:
         return (self.std_stage_complete_check(ret), Stages.CALC_CALIB)
+      elif step is Steps.CALC_HOME_OFFSETS:
+        return (self.std_stage_complete_check(ret), Stages.PROBE_HOME_OFFSETS)
       elif step is Steps.WRITE_CALIB:
         return (self.std_stage_complete_check(ret), Stages.WRITE_CALIB)
       elif step is Steps.SETUP_VERIFY:
@@ -1245,6 +1174,9 @@ class CalibManager:
         self.zmq_report('ERROR', did_stage_complete=did_stage_complete, stage=stage_for_step)
       raise e
 
+  def complete_stage(self, stage):
+    pass
+    
   def updateStatusException(self, exception):
       self.status['cmm_error'] = True
       self.status['error'] = True
@@ -1352,16 +1284,6 @@ class CalibManager:
       logger.error("set_part_csy exception %s" % str(ex))
       raise ex
 
-  async def set_cmm_csy(self, csy):
-    try:
-      await self.client.SetCsyTransformation("PartCsy, %s, %s, %s, %s, %s, %s" % (csy.orig[0], csy.orig[1], csy.orig[2], csy.euler[0], csy.euler[1], csy.euler[2])).complete()
-      await self.client.SetCoordSystem("PartCsy").complete()
-      return True
-    except Exception as ex:
-      logger.error("set_cmm_csy exception %s" % str(ex))
-      raise ex
-
-
   async def test_head(self, angle):
     '''
     Do a head-probe line against 1 face of the probing fixture
@@ -1466,7 +1388,7 @@ class CalibManager:
     L_bracket_top_face = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
     top_plane_orig, top_plane_norm  = L_bracket_top_face.plane()
     top_face_avg_z = L_bracket_top_face.average()[2]
-    tilt = angle_between(top_plane_norm, (0,0,1))
+    tilt = metrology.angle_between(top_plane_norm, (0,0,1))
     logger.debug("Vertical Tilt %.2f deg" % tilt)
     if tilt > 2:
       logger.debug("Vertical Tilt greater than 2 degrees, halting")
@@ -1479,7 +1401,7 @@ class CalibManager:
     logger.debug(back_face_line_dir)
 
     #find rotation relative to ideal alignment (+x direction)
-    ang_machine_z_to_partcsy_x = angle_between_ccw_2d([back_face_line_dir[0],back_face_line_dir[1]], [1,0])
+    ang_machine_z_to_partcsy_x = metrology.angle_between_ccw_2d([back_face_line_dir[0],back_face_line_dir[1]], [1,0])
     logger.debug('ang_machine_z_to_partcsy_x')
     logger.debug(ang_machine_z_to_partcsy_x)
 
@@ -1488,7 +1410,7 @@ class CalibManager:
     L_bracket_right_face = self.metrologyManager.getActiveFeatureSet().getFeature(fid)
     right_face_line_pt, right_face_line_dir  = L_bracket_right_face.line()
 
-    xy_pos = find_line_intersect(
+    xy_pos = metrology.line_intersection_2d(
       [right_face_line_pt[0],right_face_line_pt[1], 0],
       [right_face_line_dir[0],right_face_line_dir[1], 0],
       [back_face_line_pt[0],back_face_line_pt[1], 0],
@@ -1684,6 +1606,8 @@ class CalibManager:
       (pos_fixture_a90, norm_fixture_a90) = feat_fixture_plane_a90.plane()
 
       pos_z_intersect_fixture_a90 = line_plane_intersect(self.dir_z, pos_spindle_at_tool_probe, norm_fixture_a90, pos_fixture_a90)
+      if pos_z_intersect_fixture_a90 is None:
+        raise CalibException("line and plane do not intersect")
       pos_z_intersect_fixture_a90_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_z_intersect_fixture_a90,1))
       pos_spindle_at_tool_probe_cnccsy = np.matmul(self.cmm2cnc,np.append(pos_spindle_at_tool_probe,1))
 
@@ -2891,7 +2815,7 @@ class CalibManager:
       logger.debug('a_line_translated_dir %s' % (a_line_translated_dir,))
       
       a_dir_2d_yz = [a_line_translated_dir[1], a_line_translated_dir[2]]
-      a_pos_rel_z = angle_between_ccw_2d([1,0], a_dir_2d_yz)
+      a_pos_rel_z = metrology.angle_between_ccw_2d([1,0], a_dir_2d_yz)
       a_pos = a_pos_rel_z
 
       logger.debug("found A pos %s" % a_pos)
@@ -2956,7 +2880,7 @@ class CalibManager:
       logger.debug(b_line_translated)
 
       b_dir_2d = [b_line_translated[0],b_line_translated[2]]
-      b_pos_rel_z = angle_between_ccw_2d(b_dir_2d, [0,1])
+      b_pos_rel_z = metrology.angle_between_ccw_2d(b_dir_2d, [0,1])
       logger.debug("b_pos_rel_z %s" % b_pos_rel_z)
       b_pos = b_pos_rel_z - OFFSET_B_POS_REL_Z
       
@@ -3005,7 +2929,7 @@ class CalibManager:
       vec_cnccsy = np.matmul(self.cmm2cnc, np.append(vec, 0))
       dir_y_line_real = self.fitted_features['y_line_real']['dir']
       dir_y_line_real_cnccsy = np.matmul(self.cmm2cnc, np.append(dir_y_line_real, 0))
-      angle_rel_y = angle_between_ccw_2d([dir_y_line_real_cnccsy[0],dir_y_line_real_cnccsy[1]],[vec_cnccsy[0],vec_cnccsy[1]])
+      angle_rel_y = metrology.angle_between_ccw_2d([dir_y_line_real_cnccsy[0],dir_y_line_real_cnccsy[1]],[vec_cnccsy[0],vec_cnccsy[1]])
       logger.debug('angle_rel_y %s' % (angle_rel_y,))
       return angle_rel_y - 90
     except Exception as ex:
@@ -3048,7 +2972,7 @@ class CalibManager:
       vec_cnccsy = np.matmul(self.cmm2cnc, np.append(vec, 0))
       dir_x_line_real = self.fitted_features['x_line_real']['dir']
       dir_x_line_real_cnccsy = np.matmul(self.cmm2cnc, np.append(dir_x_line_real, 0))
-      angle_rel_x = angle_between_ccw_2d([dir_x_line_real_cnccsy[0],dir_x_line_real_cnccsy[1]],[vec_cnccsy[0],vec_cnccsy[1]])
+      angle_rel_x = metrology.angle_between_ccw_2d([dir_x_line_real_cnccsy[0],dir_x_line_real_cnccsy[1]],[vec_cnccsy[0],vec_cnccsy[1]])
       logger.debug('angle_rel_x %s' % (angle_rel_x,))
       return angle_rel_x + 90
 
@@ -3251,10 +3175,10 @@ class CalibManager:
           b_dir = -1 * b_dir
         b_dir_transformed = np.matmul(self.cmm2cnc,np.append(b_dir,0))
         b_dir_transformed_2d = np.array([b_dir_transformed[0],b_dir_transformed[2]])
-        line_angle_rel_0 = angle_between_ccw_2d(b_dir_transformed_2d, b0_dir)
+        line_angle_rel_0 = metrology.angle_between_ccw_2d(b_dir_transformed_2d, b0_dir)
         nominal_pos = float(feat_name[len(feat_name_suffix):-len('_proj')])
         if line_angle_rel_0 < 0 and nominal_pos > 135:
-          #return from angle_between_ccw_2d has range [-180,180]
+          #return from metrology.angle_between_ccw_2d has range [-180,180]
           line_angle_rel_0 = line_angle_rel_0 + 360
         if idx == len(proj_b_names) - 1 and line_angle_rel_0 < 355:
           #the last B-probe is at nominal 360
@@ -3270,7 +3194,7 @@ class CalibManager:
       for idx, (b_pt, b_dir) in enumerate(intersect_lines):
         cross_idx = int((idx + 90/B_STEP) % len(intersect_lines))
         (cross_pt, cross_dir) = intersect_lines[cross_idx]
-        intersect_pos = find_line_intersect(b_pt, b_dir, cross_pt, cross_dir)
+        intersect_pos = metrology.line_intersection_2d(b_pt, b_dir, cross_pt, cross_dir)
         feat_b_circle.addPoint(intersect_pos[0], intersect_pos[1], 0)
 
       return results
@@ -3310,7 +3234,7 @@ class CalibManager:
             a_dir = -1 * a_dir
         a_dir_transformed = np.matmul(self.cmm2cnc,np.append(a_dir,0))
         a_dir_transformed_2d = np.array([a_dir_transformed[1],a_dir_transformed[2]])
-        line_angle_rel_0 = -1*angle_between_ccw_2d(a_dir_transformed_2d, a0_dir)
+        line_angle_rel_0 = -1*metrology.angle_between_ccw_2d(a_dir_transformed_2d, a0_dir)
         nominal_pos = float(feat_name[len(feat_name_suffix):-len('_proj')])
         true_nominal_pos = nominal_pos - home_err
         err = true_nominal_pos - line_angle_rel_0
@@ -3325,7 +3249,7 @@ class CalibManager:
         if cross_idx > len(fit_lines_2d) - 1:
           break
         (cross_pt, cross_dir) = fit_lines_2d[cross_idx]
-        intersect_pos = find_line_intersect(a_pt, a_dir, cross_pt, cross_dir)
+        intersect_pos = metrology.line_intersection_2d(a_pt, a_dir, cross_pt, cross_dir)
         feat_a_circle.addPoint(intersect_pos[0], 0, intersect_pos[1])
 
       return results
@@ -3387,7 +3311,7 @@ class CalibManager:
         #pattern for feature name depends on calib('probe_b_') or verify('verify_b_')
         nominal_pos = float(b_feat_name[len(feat_name_suffix):])
         nominal_pos_adjusted = nominal_pos - b_home_err
-        line_angle_rel_0 = angle_between_ccw_2d(dir_proj_b_cnc_2d_xz, dir_proj_b_cnc_2d_xz)
+        line_angle_rel_0 = metrology.angle_between_ccw_2d(dir_proj_b_cnc_2d_xz, dir_proj_b_cnc_2d_xz)
         if line_angle_rel_0 < 0 and nominal_pos > 135:
           #shift [-180,0] portion to [180,360]
           line_angle_rel_0 = line_angle_rel_0 + 360
@@ -3668,7 +3592,6 @@ class CalibManager:
     try:
       logger.debug("Linear Axes Offsets")
       self.calc_offsets(feat_a_circle, feat_b_circle)
-      self.calc_home_offsets()
     except Exception as ex:
       logger.error("calc_calib exception (in linear results): %s" % str(ex))
       raise ex
@@ -3794,7 +3717,7 @@ class CalibManager:
 
       self.load_part_csy()
       if not self.config['skip_cmm']:
-        await self.set_cmm_csy(self.part_csy)
+        await self.set_part_csy(self.part_csy.orig, self.part_csy.euler)
 
       self.load_cnc_csy()
       self.load_real_axes()
@@ -3917,7 +3840,6 @@ class CalibManager:
 
     try:
       self.calc_offsets(feat_a_verify_circle, feat_b_verify_circle)
-      self.calc_home_offsets()
     except Exception as ex:
       logger.error("calc_verify exception (offsets): %s" % str(ex))
       raise ex
