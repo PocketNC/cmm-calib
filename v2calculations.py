@@ -1,57 +1,42 @@
 import numpy as np
 import math
 from metrology import Feature, angle_between_ccw_2d, intersectLines, angle_between
+from ipp import Csy
 import logging
 
 logger = logging.getLogger(__name__)
 
-class Csy:
-  def __init__(self, origin, euler):
-    self.origin = origin
-    self.euler = euler
-
-APPROX_CSY = Csy([ 653.0, 134.0, 126.5 ], [0, -90, 0])
-
-def calc_part_csy(L_bracket_top_face, L_bracket_back_line, L_bracket_right_line):
+def calc_part_csy(csy, L_bracket_top_face, L_bracket_back_line, L_bracket_right_line):
   """
-  Caclulates a more accurate origin and rotation about Z using the features probed using
-  the provided origin and euler angles.
+  Caclulates a new Csy using the probed L bracket features that align the Csy axes
+  to match the direction of the V2 axes. The origin is set to the top back right corner
+  of the L bracket. The L bracket features are in the original csy space and a new,
+  combined Csy is return.
   """
   top_plane = L_bracket_top_face.plane()
 
-  logger.debug("plane pt %s", top_plane[0])
-  logger.debug("plane n %s", top_plane[1])
-  
-  back_line = L_bracket_back_line.projectToPlane(top_plane).line()
-
-  logger.debug("back line pt %s", back_line[0])
-  logger.debug("back line dir %s", back_line[1])
-
   right_line = L_bracket_right_line.reverse().projectToPlane(top_plane).line()
+  back_line = L_bracket_back_line.reverse().projectToPlane(top_plane).line()
 
-  logger.debug("right line pt %s", right_line[0])
-  logger.debug("right line dir %s", right_line[1])
+  intersections = intersectLines(right_line, back_line)
 
-  intersections = intersectLines(back_line, right_line)
+  origin = intersections[0]
+  y = top_plane[1]
+  x = np.cross(back_line[1], y)
+  z = np.cross(x, y)
 
-  corner_pt = intersections[0]
-  back_line_z = L_bracket_back_line.projectToPlane((corner_pt, (0,0,1))).line()
+  mat0 = np.array([
+    [ x[0], y[0], z[0], origin[0] ],
+    [ x[1], y[1], z[1], origin[1] ],
+    [ x[2], y[2], z[2], origin[2] ],
+    [    0,    0,    0,         1 ]
+  ])
 
-  angle = angle_between_ccw_2d([1, 0], [back_line_z[1][0], back_line_z[1][1]])
+  mat1 = csy.toMatrix4()
 
-# This is not very generic. Ideally, Csy could handle combining multiple Csy objects
-# by converting to 4x4 tranformation matrices, multiplying those matrices and then
-# converting back to a Csy object, but we haven't been able to successfully represent
-# how the CMM uses euler angles. For now we assume the euler angles are (0, -90, 0)
-# so we can add the y-component of corner_pt to the global x machine coordinate and
-# the negative x-component or corner_pt to the global y machine coordinate. We also
-# only adjust the second euler angle, which is a rotation about the CMM +Z axis.
+  newmat = np.matmul(mat1, mat0)
 
-  return Csy((APPROX_CSY.origin[0]+corner_pt[1],
-              APPROX_CSY.origin[1]-corner_pt[0],
-              APPROX_CSY.origin[2]+corner_pt[2]), (APPROX_CSY.euler[0], APPROX_CSY.euler[1]+angle, APPROX_CSY.euler[2]))
-
-
+  return Csy.fromMatrix4(newmat)
 
 
 def calc_pos_a(a_line, x_dir, y_dir, z_dir, origin):

@@ -35,7 +35,8 @@ class Stages(Enum):
   """
   ERASE_COMPENSATION = auto()
   SETUP_CNC = auto()
-  SETUP_CMM_FOR_V2 = auto()
+  SETUP_CMM = auto()
+  PROBE_MACHINE_POS = auto()
   PROBE_SPINDLE_POS = auto()
   HOMING_X = auto()
   HOMING_Y = auto()
