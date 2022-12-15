@@ -5,8 +5,11 @@ from metrology import Feature, FeatureSet
 
 logger = logging.getLogger(__name__)
 
-Y_CLEARANCE_PART_CSY = -250
-Z_CLEARANCE_PART_CSY = 250
+Y_CLEARANCE_PART_CSY = 250
+X_CLEARANCE_PART_CSY = -250
+
+Z_CLEARANCE_TMP_PART_CSY = 250
+
 FIXTURE_HEIGHT = 25.2476
 FIXTURE_SIDE = 76.2
 FIXTURE_DIAG = 107.76
@@ -120,7 +123,7 @@ async def probe_spindle_pos(client, machine, x_pos_v2, z_pos_v2):
   Z_OFFSET = 45
   Y_SPINDLE_CLEARANCE = 25
 
-  await client.GoTo("Z(%s)" % Z_CLEARANCE_PART_CSY).ack()
+  await client.GoTo("Y(%s)" % Y_CLEARANCE_PART_CSY).ack()
   await client.SetProp("Tool.PtMeasPar.Approach(10)").send()
   await client.SetProp("Tool.PtMeasPar.Search(100)").send()
   await client.SetProp("Tool.PtMeasPar.Retract(-1)").send()
@@ -128,11 +131,11 @@ async def probe_spindle_pos(client, machine, x_pos_v2, z_pos_v2):
   await client.GoTo("Tool.A(0),Tool.B(0)").ack()
 
   if machine == V2_10:
-    z_home = float3(-73.0, -68.83, 36.2),
+    z_home = float3(-73.0, -68.83, 36.2)
     spindle_side_clearance = 22.5
     ball_dia = 12.69792
   elif machine == V2_50:
-    z_home = float3(-71.75, -68.83, 24.1),
+    z_home = float3(-71.75, -68.83, 24.1)
     spindle_side_clearance = 30
     ball_dia = 6.35
   else:
@@ -173,30 +176,36 @@ async def probe_spindle_pos(client, machine, x_pos_v2, z_pos_v2):
   #take additional points on spindle tip sphere
   #from +X (probe in -X)
   await client.GoTo((tip_pt + float3(clearance_radius, 0, 0)).ToXYZString()).ack()
-  await client.GoTo((tip_pt + float3(clearance_radius, 0, touch_radius)).ToXYZString()).ack()
+  await client.GoTo((tip_pt + float3(clearance_radius, 0, contact_radius)).ToXYZString()).ack()
 
-  meas_pos = tip_pt + float3(touch_radius, 0, touch_radius)
+  meas_pos = tip_pt + float3(contact_radius, 0, contact_radius)
   pt_meas = await client.PtMeas("%s,IJK(1,0,0)" % (meas_pos.ToXYZString())).data()
   pt = float3.FromXYZString(pt_meas.data_list[0])
   pts.append(pt)
 
   #from +Y (probe in -Y)
-  await client.GoTo((tip_pt + float3(clearance_radius, clearance_radius, touch_radius)).ToXYZString()).ack()
-  await client.GoTo((tip_pt + float3(0, clearance_radius, touch_radius)).ToXYZString()).ack() $$$$$
-  meas_pos = tip_pt + float3(0, touch_radius, touch_radius)
+  await client.GoTo((tip_pt + float3(clearance_radius, clearance_radius, contact_radius)).ToXYZString()).ack()
+  await client.GoTo((tip_pt + float3(0, clearance_radius, contact_radius)).ToXYZString()).ack()
+  meas_pos = tip_pt + float3(0, contact_radius, contact_radius)
   pt_meas = await client.PtMeas("%s,IJK(0,1,0)" % (meas_pos.ToXYZString())).data()
   pt = float3.FromXYZString(pt_meas.data_list[0])
   pts.append(pt)
 
   #from -X (probe in +X)
-  await client.GoTo((tip_pt + float3(-clearance_radius, clearance_radius, touch_radius)).ToXYZString()).ack()
-  await client.GoTo((tip_pt + float3(-clearance_radius, 0, touch_radius)).ToXYZString()).ack()
-  meas_pos = tip_pt + float3(-touch_radius, 0, touch_radius)
+  await client.GoTo((tip_pt + float3(-clearance_radius, clearance_radius, contact_radius)).ToXYZString()).ack()
+  await client.GoTo((tip_pt + float3(-clearance_radius, 0, contact_radius)).ToXYZString()).ack()
+  meas_pos = tip_pt + float3(-contact_radius, 0, contact_radius)
   pt_meas = await client.PtMeas("%s,IJK(-1,0,0)" % (meas_pos.ToXYZString())).data()
   pt = float3.FromXYZString(pt_meas.data_list[0])
   pts.append(pt)
 
   return Feature(pts)
+
+async def go_to_clearance_y(client, y=250):
+  await client.GoTo("Y(%s)" % y).complete()
+
+async def go_to_clearance_x(client, x=-250):
+  await client.GoTo("X(%s)" % x).complete()
 
 async def probe_machine_pos(client):
   '''
@@ -207,7 +216,7 @@ async def probe_machine_pos(client):
   The first list can be used to calculate a best fit plane for the top, then two best fit lines for the back and right face after
   projecting them up to the top face.
   '''
-  await client.GoTo("Z(%s)" % Z_CLEARANCE_PART_CSY).ack()
+  await client.GoTo("Z(%s)" % Z_CLEARANCE_TMP_PART_CSY).ack()
   await client.SetProp("Tool.PtMeasPar.Approach(10)").send()
   await client.SetProp("Tool.PtMeasPar.Search(15)").send()
   await client.SetProp("Tool.PtMeasPar.Retract(-1)").send()
