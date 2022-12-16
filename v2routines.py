@@ -20,12 +20,12 @@ TOOL_3_LENGTH = 117.8
 
 B_LINE_LENGTH = 35
 
-APPROX_FIXTURE_BALL_HOME = float3(-94.0, -114.7, -123.4)
-APPROX_COR = float3(-61.8, -112.4, -69.7)
-APPROX_B_ROT_CENT = float3(-62.33, -111.87, -2.0)
-APPROX_A_ROT_CENT = float3(-63.10, -46.0, -6.93)
-PROBE_FIXTURE_PLANE_A90_WAYPOINT = float3(-56.5, -93.5, -41.5)
-PROBE_FIXTURE_TIP_WAYPOINT = float3(-33.90, -133.0, -83.53)
+APPROX_FIXTURE_BALL_HOME = float3(-137.2, -123.4, -112.4)
+APPROX_COR = float3(-134.9,  -69.7, -80.19999999999999)
+APPROX_B_ROT_CENT = float3(-134.37, -2.0,-80.72999999999999)
+APPROX_A_ROT_CENT = float3(-68.5, -6.93, -81.5,)
+PROBE_FIXTURE_PLANE_A90_WAYPOINT = float3(-116.0, -41.5, -74.9)
+PROBE_FIXTURE_TIP_WAYPOINT = float3(-155.5, -83.53, -52.3)
 V2_10 = "V2_10"
 V2_50 = "V2_50"
 
@@ -135,7 +135,7 @@ async def probe_spindle_pos(client, machine, x_pos_v2, z_pos_v2):
     spindle_side_clearance = 22.5
     ball_dia = 12.69792
   elif machine == V2_50:
-    z_home = float3(-71.75, -68.83, 24.1)
+    z_home = float3(-71.75, -68.83, 24.1) (24.1, -71.75, -68.83)
     spindle_side_clearance = 30
     ball_dia = 6.35
   else:
@@ -355,60 +355,60 @@ async def probe_home_offset_y(client, y_pos_v2, a_pos_v2, b_pos_v2):
   pts = []
   await client.GoTo("Tool.Alignment(1,0,0)").complete()
 
-  orig = APPROX_COR + float3(0,0,-(y_pos_v2)) 
-  start_pos = orig + float3(-5,FIXTURE_SIDE/2-15,FIXTURE_SIDE/2)
-  await client.GoTo((start_pos + float3(25,0,25)).ToXYZString()).complete()
+  orig = APPROX_COR + float3(0,-(y_pos_v2),0) 
+  start_pos = orig + float3(FIXTURE_SIDE/2-15,FIXTURE_SIDE/2,-5)
+  await client.GoTo((start_pos + float3(0,25,25)).ToXYZString()).complete()
 
-  drive_vec = float3(0,-1,0)
-  face_norm = float3(0,0,1)
+  drive_vec = float3(-1,0,0)
+  face_norm = float3(0,1,0)
   points = await routines.headprobe_line_xz(client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,-1,1, 75)
   for pt in points:
     feat.addPoint(*pt)
 
-  await client.GoTo("%s,Tool.A(90),Tool.B(120)" % ((orig + float3(0,-150,FIXTURE_SIDE/2 + 10)).ToXYZString())).complete()
-  await client.GoTo("%s,Tool.A(90),Tool.B(120)" % ((orig + float3(0,-150,-(FIXTURE_SIDE/2 + 10))).ToXYZString())).complete()
-  meas_pos = orig + float3(0,-(FIXTURE_SIDE/2 - 15),-(FIXTURE_SIDE/2))
-  await client.GoTo("%s,Tool.A(90),Tool.B(120)" % ((meas_pos + float3(0,0,-5)).ToXYZString())).complete()
-  ptMeas = await client.PtMeas("%s,IJK(0,0,-1)" % (meas_pos.ToXYZString())).data()
+  await client.GoTo("%s,Tool.A(90),Tool.B(120)" % ((orig + float3(-150,FIXTURE_SIDE/2 + 10,0)).ToXYZString())).complete()
+  await client.GoTo("%s,Tool.A(90),Tool.B(120)" % ((orig + float3(-150,-(FIXTURE_SIDE/2 + 10),0)).ToXYZString())).complete()
+  meas_pos = orig + float3(-(FIXTURE_SIDE/2 - 15),-(FIXTURE_SIDE/2),0)
+  await client.GoTo("%s,Tool.A(90),Tool.B(120)" % ((meas_pos + float3(0,-5,0)).ToXYZString())).complete()
+  ptMeas = await client.PtMeas("%s,IJK(0,-1,0)" % (meas_pos.ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   pts.append(pt)
   
-  meas_pos = orig + float3(0,(FIXTURE_SIDE/2 - 15),-(FIXTURE_SIDE/2))
-  await client.GoTo("%s,Tool.A(90),Tool.B(120)" % ((meas_pos + float3(0,0,-5)).ToXYZString())).complete()
-  ptMeas = await client.PtMeas("%s,IJK(0,0,-1)" % (meas_pos.ToXYZString())).data()
+  meas_pos = orig + float3((FIXTURE_SIDE/2 - 15),-(FIXTURE_SIDE/2),0)
+  await client.GoTo("%s,Tool.A(90),Tool.B(120)" % ((meas_pos + float3(0,-5,0)).ToXYZString())).complete()
+  ptMeas = await client.PtMeas("%s,IJK(0,-1,0)" % (meas_pos.ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   pts.append(pt)
   
-  await cmm.GoTo("Y(%s)" % Y_CLEARANCE_PART_CSY).complete()
+  await cmm.GoTo("X(%s)" % X_CLEARANCE_PART_CSY).complete()
 
   return Feature(pts)
 
 async def probe_top_plane(client, y_pos_v2):
-  orig = APPROX_B_ROT_CENT + float3(0,0,(-y_pos_v2 - 63.5))
-  await client.GoTo("Tool.Alignment(0,0,1)").send()
+  orig = APPROX_B_ROT_CENT + float3(0,(-y_pos_v2 - 63.5),0)
+  await client.GoTo("Tool.Alignment(0,1,0)").send()
   await client.SetProp("Tool.PtMeasPar.HeadTouch(0)").send()
-  await client.GoTo((orig + float3(0,0,100)).ToXYZString()).ack()
-  await client.GoTo((orig + float3(0,0,10)).ToXYZString()).ack()
+  await client.GoTo((orig + float3(0,100,0)).ToXYZString()).ack()
+  await client.GoTo((orig + float3(0,10,0)).ToXYZString()).ack()
 
   fixture_top_face = Feature()
 
-  ptMeas = await client.PtMeas("%s,IJK(0,0,1)" % ((orig).ToXYZString())).data()
+  ptMeas = await client.PtMeas("%s,IJK(0,1,0)" % ((orig).ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   fixture_top_face.addPoint(*pt)
 
-  ptMeas = await client.PtMeas("%s,IJK(0,0,1)" % ((orig + float3(-25,-5,0)).ToXYZString())).data()
+  ptMeas = await client.PtMeas("%s,IJK(0,1,0)" % ((orig + float3(-5,0,-25)).ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   fixture_top_face.addPoint(*pt)
 
-  ptMeas = await client.PtMeas("%s,IJK(0,0,1)" % ((orig + float3(-25,5,0)).ToXYZString())).data()
+  ptMeas = await client.PtMeas("%s,IJK(0,1,0)" % ((orig + float3(5,0,-25)).ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   fixture_top_face.addPoint(*pt)
 
-  ptMeas = await client.PtMeas("%s,IJK(0,0,1)" % ((orig + float3(25,5,0)).ToXYZString())).data()
+  ptMeas = await client.PtMeas("%s,IJK(0,1,0)" % ((orig + float3(5,0,25)).ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   fixture_top_face.addPoint(*pt)
   
-  ptMeas = await client.PtMeas("%s,IJK(0,0,1)" % ((orig + float3(25,-5,0)).ToXYZString())).data()
+  ptMeas = await client.PtMeas("%s,IJK(0,1,0)" % ((orig + float3(-5,0,25)).ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   fixture_top_face.addPoint(*pt)
 
@@ -416,24 +416,24 @@ async def probe_top_plane(client, y_pos_v2):
 
 async def probe_fixture_plane_a90(client, y_pos_v2):
   orig = PROBE_FIXTURE_PLANE_A90_WAYPOINT
-  await client.GoTo((orig + float3(100,0,100)).ToXYZString()).complete()
+  await client.GoTo((orig + float3(0,100,100)).ToXYZString()).complete()
   await client.GoTo("Tool.A(8),Tool.B(180)").complete()
 
-  await client.GoTo((orig + float3(5,0,0)).ToXYZString()).complete()
+  await client.GoTo((orig + float3(0,0,5)).ToXYZString()).complete()
   await client.SetProp("Tool.PtMeasPar.HeadTouch(1)").complete()
 
   fixture_plane_a90 = Feature()
 
-  ptMeas = await client.PtMeas("%s,IJK(1,0,0)" % ((orig).ToXYZString())).complete()
+  ptMeas = await client.PtMeas("%s,IJK(0,0,1)" % ((orig).ToXYZString())).complete()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   fixture_plane_a90.addPoint(*pt)
 
-  ptMeas = await client.PtMeas("%s,IJK(1,0,0)" % ((orig + float3(0,-3,+3)).ToXYZString())).complete()
+  ptMeas = await client.PtMeas("%s,IJK(0,0,1)" % ((orig + float3(-3,+3,0)).ToXYZString())).complete()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   fixture_plane_a90.addPoint(*pt)
 
-  await client.GoTo("%s,Tool.A(8),Tool.B(180)" % ((orig + float3(5,0,-3)).ToXYZString())).complete()
-  ptMeas = await client.PtMeas("%s,IJK(1,0,0)" % ((orig + float3(0,0,-3)).ToXYZString())).complete()
+  await client.GoTo("%s,Tool.A(8),Tool.B(180)" % ((orig + float3(0,-3,5)).ToXYZString())).complete()
+  ptMeas = await client.PtMeas("%s,IJK(0,0,1)" % ((orig + float3(0,-3,0)).ToXYZString())).complete()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   fixture_plane_a90.addPoint(*pt)
 
@@ -448,54 +448,54 @@ async def probe_home_offset_x(client, y_pos_v2, a_pos_v2, b_pos_v2):
   await client.GoTo("Tool.Alignment(1,0,0)").complete()
 
   orig = APPROX_COR
-  start_pos = orig + float3(-5,-FIXTURE_SIDE/2,FIXTURE_SIDE/2-15)
-  await client.GoTo((start_pos + float3(25,-25,25)).ToXYZString()).complete()
+  start_pos = orig + float3(-FIXTURE_SIDE/2,FIXTURE_SIDE/2-15,-5)
+  await client.GoTo((start_pos + float3(-25,25,25)).ToXYZString()).complete()
   
-  drive_vec = float3(0,0,-1)
-  face_norm = float3(0,-1,0)
+  drive_vec = float3(0,-1,0)
+  face_norm = float3(-1,0,0)
   points = await routines.headprobe_line_xz(client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,-1,1)
   for pt in points:
     feat.addPoint(*pt)
 
-  await client.GoTo((start_pos + float3(25,-25,150)).ToXYZString()).complete()
+  await client.GoTo((start_pos + float3(-25,150,25)).ToXYZString()).complete()
   await client.GoTo("Tool.A(55),Tool.B(177)").complete()
-  await client.GoTo("%s,Tool.A(55),Tool.B(177)" % ((orig + float3(0,FIXTURE_SIDE/2 + 5,FIXTURE_SIDE/2+5)).ToXYZString())).complete()
-  meas_pos = orig + float3(2,FIXTURE_SIDE/2,FIXTURE_SIDE/2-15)
-  await client.GoTo("%s,Tool.A(55),Tool.B(177)" % ((meas_pos + float3(0,5,0)).ToXYZString())).complete()
-  ptMeas = await client.PtMeas("%s,IJK(0,1,0)" % (meas_pos.ToXYZString())).data()
+  await client.GoTo("%s,Tool.A(55),Tool.B(177)" % ((orig + float3(FIXTURE_SIDE/2 + 5,FIXTURE_SIDE/2+5,0)).ToXYZString())).complete()
+  meas_pos = orig + float3(FIXTURE_SIDE/2,FIXTURE_SIDE/2-15,2)
+  await client.GoTo("%s,Tool.A(55),Tool.B(177)" % ((meas_pos + float3(5,0,0)).ToXYZString())).complete()
+  ptMeas = await client.PtMeas("%s,IJK(1,0,)" % (meas_pos.ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   feat.addPoint(*pt)
-  meas_pos = orig + float3(2,FIXTURE_SIDE/2,-(FIXTURE_SIDE/2-15))
-  await client.GoTo("%s,Tool.A(55),Tool.B(177)" % ((meas_pos + float3(0,5,0)).ToXYZString())).complete()
-  ptMeas = await client.PtMeas("%s,IJK(0,1,0)" % (meas_pos.ToXYZString())).data()
+  meas_pos = orig + float3(FIXTURE_SIDE/2,-(FIXTURE_SIDE/2-15),2)
+  await client.GoTo("%s,Tool.A(55),Tool.B(177)" % ((meas_pos + float3(5,0,0)).ToXYZString())).complete()
+  ptMeas = await client.PtMeas("%s,IJK(1,0,0)" % (meas_pos.ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   feat.addPoint(*pt)
   
-  await client.GoTo("Z(%s)" % Z_CLEARANCE_PART_CSY).complete()
+  await client.GoTo("Y(%s)" % Y_CLEARANCE_PART_CSY).complete()
 
   return feat
 
 async def initial_probe_a(client, y_pos_v2, a_pos_v2):
   orig = APPROX_A_ROT_CENT
-  a_cor = orig + float3(0,0,(-y_pos_v2 - 63.5))
+  a_cor = orig + float3(0,(-y_pos_v2 - 63.5),0)
 
   await client.SetProp("Tool.PtMeasPar.Search(12)").ack()
-  await client.GoTo((a_cor + float3(0, -100, 150)).ToXYZString()).complete()
-  await client.GoTo("Tool.Alignment(0,-1,0)").complete()
-  await client.GoTo((a_cor + float3(0, -200, 0)).ToXYZString()).complete()
+  await client.GoTo((a_cor + float3(-100, 150, 0)).ToXYZString()).complete()
+  await client.GoTo("Tool.Alignment(-1,0,0)").complete()
+  await client.GoTo((a_cor + float3(-200, 0, 0)).ToXYZString()).complete()
 
 async def probe_a(client, y_pos_v2, a_pos_v2):
   '''
   Probe points along the shark fin on the calibration fixture. Returns a feature with those points.
   '''
   orig = APPROX_A_ROT_CENT
-  a_cor = orig + float3(0,0,(-y_pos_v2 - 63.5))
-  vec_a_cor_to_orig_fixture_tip = (PROBE_FIXTURE_TIP_WAYPOINT+float3(0,0,(126.5))) - APPROX_A_ROT_CENT
+  a_cor = orig + float3(0,(-y_pos_v2 - 63.5),0)
+  vec_a_cor_to_orig_fixture_tip = (PROBE_FIXTURE_TIP_WAYPOINT+float3(0,(126.5),0)) - APPROX_A_ROT_CENT
   fixture_offset_angle = 0
   fixture_length = 50.8
-  vec_cor_to_orig_start = vec_a_cor_to_orig_fixture_tip + float3(0,0,-2) # down a bit away from edge
-  dist_cor_to_start = math.sqrt(vec_cor_to_orig_start.x*vec_cor_to_orig_start.x + vec_cor_to_orig_start.z*vec_cor_to_orig_start.z) + 2
-  angle_offset_start = math.atan2(vec_cor_to_orig_start.z,vec_cor_to_orig_start.x)*180/math.pi
+  vec_cor_to_orig_start = vec_a_cor_to_orig_fixture_tip + float3(0,-2,0) # down a bit away from edge
+  dist_cor_to_start = math.sqrt(vec_cor_to_orig_start.z*vec_cor_to_orig_start.z + vec_cor_to_orig_start.y*vec_cor_to_orig_start.y) + 2
+  angle_offset_start = math.atan2(vec_cor_to_orig_start.y,vec_cor_to_orig_start.x)*180/math.pi
 
   # Do a head-probe line against 1 face of the probing fixture
   a_line = Feature()
@@ -507,12 +507,12 @@ async def probe_a(client, y_pos_v2, a_pos_v2):
   logger.debug('start origin Rad %s' % dist_cor_to_start)
   logger.debug('start pos angle %s' % angle_start_pos)
   
-  start_pos = a_cor + float3(dist_cor_to_start * math.cos(angle_start_pos*math.pi/180), vec_a_cor_to_orig_fixture_tip.y,dist_cor_to_start * math.sin(angle_start_pos*math.pi/180))
+  start_pos = a_cor + float3(vec_a_cor_to_orig_fixture_tip.y,dist_cor_to_start * math.sin(angle_start_pos*math.pi/180),dist_cor_to_start * math.cos(angle_start_pos*math.pi/180),)
   logger.debug('start pos %s' % start_pos)
   
   drive_angle = total_angle - 90
-  drive_vec = float3(math.cos(drive_angle*math.pi/180), 0, math.sin(drive_angle*math.pi/180))
-  face_norm = float3(-drive_vec.z, 0, drive_vec.x)
+  drive_vec = float3(0, math.sin(drive_angle*math.pi/180), math.cos(drive_angle*math.pi/180))
+  face_norm = float3(0, -drive_vec.z, drive_vec.y)
   logger.debug("drive_vec %s" % drive_vec)
   points = await routines.headprobe_line_yz(client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,3,1)
   for pt in points:
@@ -528,15 +528,15 @@ async def probe_a(client, y_pos_v2, a_pos_v2):
 
 async def initial_probe_b(client, y_pos_v2, a_pos_v2):
   orig = APPROX_B_ROT_CENT
-  pos_bcor = orig + float3(0,0,(-y_pos_v2 - 63.5))
+  pos_bcor = orig + float3(0,(-y_pos_v2 - 63.5),0)
   fixtureOffsetAngle = FIXTURE_OFFSET_B_ANGLE
   fixture_length = FIXTURE_SIDE
   #calculate some offsets 
   #we'll use the nominal b-45 start-pos for reference
   #(at b-45, the fixture face is approx. parallel to PartCsy Y axis)
-  vec_bcor_to_startpos45 = float3(-0.5*fixture_length,0.5*fixture_length-20,0)
-  dist_bcor_to_startpos45 = math.sqrt(vec_bcor_to_startpos45.x*vec_bcor_to_startpos45.x + vec_bcor_to_startpos45.y*vec_bcor_to_startpos45.y)
-  ang_bcor_to_startpos45 = math.atan2(vec_bcor_to_startpos45.y,vec_bcor_to_startpos45.x)*180/math.pi
+  vec_bcor_to_startpos45 = float3(0.5*fixture_length-20,0,-0.5*fixture_length)
+  dist_bcor_to_startpos45 = math.sqrt(vec_bcor_to_startpos45.x*vec_bcor_to_startpos45.x + vec_bcor_to_startpos45.z*vec_bcor_to_startpos45.z)
+  ang_bcor_to_startpos45 = math.atan2(vec_bcor_to_startpos45.x,vec_bcor_to_startpos45.z)*180/math.pi
 
   ang_bcor_to_startpos = (b_pos_v2 - 45) + ang_bcor_to_startpos45
   logger.debug('ang_bcor_to_startpos %s' % ang_bcor_to_startpos)
@@ -550,12 +550,12 @@ async def initial_probe_b(client, y_pos_v2, a_pos_v2):
   # print('start_posOffsetAngle %s' % start_posOffsetAngle)
   # print('start origin Rad %s' % start_posOriginRad)
   # print('start pos angle %s' % start_posAngle)
-  start_pos = pos_bcor + float3(dist_bcor_to_startpos45 * math.cos(ang_bcor_to_startpos*math.pi/180), dist_bcor_to_startpos45 * math.sin(ang_bcor_to_startpos*math.pi/180),-6)
+  start_pos = pos_bcor + float3(dist_bcor_to_startpos45 * math.sin(ang_bcor_to_startpos*math.pi/180), -6, dist_bcor_to_startpos45 * math.cos(ang_bcor_to_startpos*math.pi/180))
 
   await client.SetProp("Tool.PtMeasPar.Search(15)").ack()
   await client.SetProp("Tool.PtMeasPar.HeadTouch(1)").complete()
   await client.GoTo("Tool.A(0)").complete()
-  await client.GoTo((start_pos + float3(0, 0, 25)).ToXYZString()).complete()
+  await client.GoTo((start_pos + float3(0, 25, 0)).ToXYZString()).complete()
 
 async def probe_b_pos(self, y_pos_v2, b_pos_v2):
   a_clearance = 2
@@ -571,91 +571,89 @@ async def probe_b_pos(self, y_pos_v2, b_pos_v2):
     logger.debug('vec_cor_to_fixture_sphere %s' % (vec_cor_to_fixture_sphere,))
     theta = np.deg2rad(b_pos_v2)
     rot = np.array([[math.cos(theta), -math.sin(theta)], [math.sin(theta), math.cos(theta)]])
-    vec_cor_to_fixture_sphere = np.dot(rot,np.array([vec_cor_to_fixture_sphere[0],vec_cor_to_fixture_sphere[1]]))
+    vec_cor_to_fixture_sphere = np.dot(rot,np.array([vec_cor_to_fixture_sphere[0],vec_cor_to_fixture_sphere[2]]))
     logger.debug('vec_cor_to_fixture_sphere %s' % (vec_cor_to_fixture_sphere,))
     logger.debug('cor %s' % (waypoints['cor'],))
-    orig = waypoints['cor'] + float3(vec_cor_to_fixture_sphere[0],vec_cor_to_fixture_sphere[1],0) + float3(0,0,-(y_pos_v2))
-    #+10mm on Z because otherwise we run into fixture top plane... but the waypoint seems to be correct for other purposes... hmmm
-    #-3.5mm on Y, current waypoint off center for machine 1702
-    #+1mm more on Z to avoid collision with fin when B around ~245 deg
-    orig = orig + float3(0,-3.5,10)
+    orig = waypoints['cor'] + float3(vec_cor_to_fixture_sphere[0],0,vec_cor_to_fixture_sphere[1]) + float3(0,-(y_pos_v2),0)
+    #+10mm on Y because otherwise we run into fixture top plane... but the waypoint seems to be correct for other purposes... hmmm
+    #-3.5mm on X, current waypoint off center for machine 1702
+    orig = orig + float3(-3.5,10,0)
     logger.debug('orig %s' % (orig,))
 
     contact_radius = (FIXTURE_BALL_DIA+PROBE_DIA)/2
     a_angle_probe_contact = math.atan2(contact_radius,TOOL_3_LENGTH)*180/math.pi
 
     await self.client.GoTo("Tool.Alignment(0,0,1,1,0,0)").complete()
-    await self.client.GoTo((orig + float3(0,0,25)).ToXYZString()).complete()
+    await self.client.GoTo((orig + float3(0,25,0)).ToXYZString()).complete()
     getCurrPosCmd = await self.client.Get("X(),Y(),Z()").data()
     currPos = readPointData(getCurrPosCmd.data_list[0])
 
-    #place tip pos +Y from target
+    #place tip pos +X from target
     await self.client.GoTo("Tool.A(%s),Tool.B(%s)" % (a_angle_probe_contact+a_clearance, 90+b_pos_v2)).complete()
-    await self.client.GoTo("Z(%s)" % (currPos.z - 25)).complete()
+    await self.client.GoTo("Y(%s)" % (currPos.y - 25)).complete()
     await self.client.SetProp("Tool.PtMeasPar.HeadTouch(1)").send()
     await self.client.SetProp("Tool.PtMeasPar.Search(6)").complete()
 
-    # probe in -Y dir
-    meas_vec = np.dot(rot,np.array([0,1]))
-    contact_pos = np.dot(rot,np.array([0,contact_radius]))
-    contact_pos = float3(contact_pos[0],contact_pos[1],0)
-    ptMeas = await self.client.PtMeas("%s,IJK(%s,%s,0)" % ((orig + contact_pos).ToXYZString(), str(meas_vec[0]), str(meas_vec[1]))).data()
+    # probe in -X dir
+    meas_vec = np.dot(rot,np.array([1,0]))
+    contact_pos = np.dot(rot,np.array([contact_radius,0]))
+    contact_pos = float3(contact_pos[0],0,contact_pos[1])
+    ptMeas = await self.client.PtMeas("%s,IJK(%s,0,%s)" % ((orig + contact_pos).ToXYZString(), str(meas_vec[0]), str(meas_vec[1]))).data()
+    pt = float3.FromXYZString(ptMeas.data_list[0])
+    feature.addPoint(*pt)
+
+    # move to -Z pos, probe in +Z dir
+    await self.client.GoTo("Tool.A(%s),Tool.B(%s)" % (a_angle_probe_contact+a_clearance, 180+b_pos_v2)).complete()
+    meas_vec = np.dot(rot,np.array([0,-1]))
+    contact_pos = np.dot(rot,np.array([0,-contact_radius]))
+    contact_pos = float3(contact_pos[0],0,contact_pos[1])
+    ptMeas = await self.client.PtMeas("%s,IJK(%s,0,%s)" % ((orig + contact_pos).ToXYZString(),str(meas_vec[0]),str(meas_vec[1]))).data()
     pt = float3.FromXYZString(ptMeas.data_list[0])
     feature.addPoint(*pt)
 
     # move to -X pos, probe in +X dir
-    await self.client.GoTo("Tool.A(%s),Tool.B(%s)" % (a_angle_probe_contact+a_clearance, 180+b_pos_v2)).complete()
+    await self.client.GoTo("Tool.A(%s),Tool.B(%s)" % (a_angle_probe_contact+a_clearance, 270+b_pos_v2)).complete()
     meas_vec = np.dot(rot,np.array([-1,0]))
     contact_pos = np.dot(rot,np.array([-contact_radius,0]))
-    contact_pos = float3(contact_pos[0],contact_pos[1],0)
-    ptMeas = await self.client.PtMeas("%s,IJK(%s,%s,0)" % ((orig + contact_pos).ToXYZString(),str(meas_vec[0]),str(meas_vec[1]))).data()
-    pt = float3.FromXYZString(ptMeas.data_list[0])
-    feature.addPoint(*pt)
-
-    # move to -Y pos, probe in +Y dir
-    await self.client.GoTo("Tool.A(%s),Tool.B(%s)" % (a_angle_probe_contact+a_clearance, 270+b_pos_v2)).complete()
-    meas_vec = np.dot(rot,np.array([0,-1]))
-    contact_pos = np.dot(rot,np.array([0,-contact_radius]))
-    contact_pos = float3(contact_pos[0],contact_pos[1],0)
-    ptMeas = await self.client.PtMeas("%s,IJK(%s,%s,0)" % ((orig + contact_pos).ToXYZString(),str(meas_vec[0]),str(meas_vec[1]))).data()
+    contact_pos = float3(contact_pos[0],0,contact_pos[1])
+    ptMeas = await self.client.PtMeas("%s,IJK(%s,0,%s)" % ((orig + contact_pos).ToXYZString(),str(meas_vec[0]),str(meas_vec[1]))).data()
     pt = float3.FromXYZString(ptMeas.data_list[0])
     feature.addPoint(*pt) 
 
     #rise 2mm and probe another 3 points
-    measPos2 = orig + float3(0,0,2)
+    measPos2 = orig + float3(0,2,0)
     getCurrPosCmd = await self.client.Get("X(),Y(),Z()").complete()
     currPos = readPointData(getCurrPosCmd.data_list[0])
-    # await self.client.GoTo((currPos + float3(0,0,+2)).ToXYZString()).complete()
     await self.client.GoTo("Tool.A(%s),Tool.B(%s)" % (a_angle_probe_contact+a_clearance, 270+b_pos_v2)).complete()
-    await self.client.GoTo("Z(%s)" % (currPos.z + 2)).complete()
+    await self.client.GoTo("Y(%s)" % (currPos.y + 2)).complete()
 
-    # probe in +Y dir
+    # probe in +X dir
     await self.client.GoTo("Tool.A(%s),Tool.B(%s)" % (a_angle_probe_contact+a_clearance, 270+b_pos_v2)).complete()
-    contact_pos = np.dot(rot,np.array([0,-contact_radius+.5]))
-    contact_pos = float3(contact_pos[0],contact_pos[1],0)
-    ptMeas = await self.client.PtMeas("%s,IJK(%s,%s,0)" % ((measPos2 + contact_pos).ToXYZString(),str(meas_vec[0]),str(meas_vec[1]))).data()
+    contact_pos = np.dot(rot,np.array([-contact_radius+.5,0]))
+    contact_pos = float3(contact_pos[0],0,contact_pos[1])
+    ptMeas = await self.client.PtMeas("%s,IJK(%s,0,%s)" % ((measPos2 + contact_pos).ToXYZString(),str(meas_vec[0]),str(meas_vec[1]))).data()
     pt = float3.FromXYZString(ptMeas.data_list[0])
     feature.addPoint(*pt)
 
-    # move to -X pos, probe in +X dir
+    # move to -Z pos, probe in +Z dir
     await self.client.GoTo("Tool.A(%s),Tool.B(%s)" % (a_angle_probe_contact+a_clearance, 180+b_pos_v2)).complete()
-    meas_vec = np.dot(rot,np.array([-1,0]))
-    contact_pos = np.dot(rot,np.array([-contact_radius+.5,0]))
-    contact_pos = float3(contact_pos[0],contact_pos[1],0)
-    ptMeas = await self.client.PtMeas("%s,IJK(%s,%s,0)" % ((measPos2 + contact_pos).ToXYZString(),str(meas_vec[0]),str(meas_vec[1]))).data()
+    meas_vec = np.dot(rot,np.array([0,-1]))
+    contact_pos = np.dot(rot,np.array([0,-contact_radius+.5]))
+    contact_pos = float3(contact_pos[0],0,contact_pos[1])
+    ptMeas = await self.client.PtMeas("%s,IJK(%s,0,%s)" % ((measPos2 + contact_pos).ToXYZString(),str(meas_vec[0]),str(meas_vec[1]))).data()
     pt = float3.FromXYZString(ptMeas.data_list[0])
     feature.addPoint(*pt) 
 
-    # move to +Y pos, probe in -Y dir
+    # move to +X pos, probe in -X dir
     await self.client.GoTo("Tool.A(%s),Tool.B(%s)" % (a_angle_probe_contact+a_clearance, 90+b_pos_v2)).complete()
-    meas_vec = np.dot(rot,np.array([0,1]))
-    contact_pos = np.dot(rot,np.array([0,contact_radius-.5]))
-    contact_pos = float3(contact_pos[0],contact_pos[1],0)
-    ptMeas = await self.client.PtMeas("%s,IJK(%s,%s,0)" % ((measPos2 + contact_pos).ToXYZString(),str(meas_vec[0]),str(meas_vec[1]))).data()
+    meas_vec = np.dot(rot,np.array([1,0]))
+    contact_pos = np.dot(rot,np.array([contact_radius-.5,0]))
+    contact_pos = float3(contact_pos[0],0,contact_pos[1],)
+    ptMeas = await self.client.PtMeas("%s,IJK(%s,0,%s)" % ((measPos2 + contact_pos).ToXYZString(),str(meas_vec[0]),str(meas_vec[1]))).data()
     pt = float3.FromXYZString(ptMeas.data_list[0])
     feature.addPoint(*pt) 
 
-    await self.client.GoTo((orig + float3(0,0,50)).ToXYZString()).complete()
+    await self.client.GoTo((orig + float3(0,50,0)).ToXYZString()).complete()
     return True
   except Exception as ex:
     logger.error("probe_b_pos exception %s" % str(ex))
@@ -667,15 +665,15 @@ async def probe_b(client, y_pos_v2, b_pos_v2):
   The fixture face being probed is on the upper rectangle, opposite from the peak of the vertical fin
   '''
   orig = APPROX_B_ROT_CENT
-  pos_bcor = orig + float3(0,0,(-y_pos_v2 - 63.5))
+  pos_bcor = orig + float3(0,(-y_pos_v2 - 63.5),0)
   fixtureOffsetAngle = FIXTURE_OFFSET_B_ANGLE
   fixture_length = FIXTURE_SIDE
   #calculate some offsets 
   #we'll use the nominal b-45 start-pos for reference
   #(at b-45, the fixture face is approx. parallel to PartCsy Y axis)
-  vec_bcor_to_startpos45 = float3(-0.5*fixture_length,0.5*fixture_length-20,0)
-  dist_bcor_to_startpos45 = math.sqrt(vec_bcor_to_startpos45.x*vec_bcor_to_startpos45.x + vec_bcor_to_startpos45.y*vec_bcor_to_startpos45.y)
-  ang_bcor_to_startpos45 = math.atan2(vec_bcor_to_startpos45.y,vec_bcor_to_startpos45.x)*180/math.pi
+  vec_bcor_to_startpos45 = float3(0.5*fixture_length-20,0,0-0.5*fixture_length)
+  dist_bcor_to_startpos45 = math.sqrt(vec_bcor_to_startpos45.x*vec_bcor_to_startpos45.x + vec_bcor_to_startpos45.z*vec_bcor_to_startpos45.z)
+  ang_bcor_to_startpos45 = math.atan2(vec_bcor_to_startpos45.x,vec_bcor_to_startpos45.z)*180/math.pi
   b_line = Feature()
 
   ang_bcor_to_startpos = (b_pos_v2 - 45) + ang_bcor_to_startpos45
@@ -690,14 +688,14 @@ async def probe_b(client, y_pos_v2, b_pos_v2):
   # print('start_posOffsetAngle %s' % start_posOffsetAngle)
   # print('start origin Rad %s' % start_posOriginRad)
   # print('start pos angle %s' % start_posAngle)
-  start_pos = pos_bcor + float3(dist_bcor_to_startpos45 * math.cos(ang_bcor_to_startpos*math.pi/180), dist_bcor_to_startpos45 * math.sin(ang_bcor_to_startpos*math.pi/180),-6)
+  start_pos = pos_bcor + float3(dist_bcor_to_startpos45 * math.sin(ang_bcor_to_startpos*math.pi/180),-6,dist_bcor_to_startpos45 * math.cos(ang_bcor_to_startpos*math.pi/180))
   # start_pos = orig + float3(start_posOriginRad * math.cos(start_posAngle*math.pi/180), start_posOriginRad * math.sin(start_posAngle*math.pi/180),-6)
   await client.SetProp("Tool.PtMeasPar.Search(15)").ack()
 
   logger.debug('start pos %s' % start_pos)
 
   lineAngle = totAngle + 90
-  lineVec = float3(math.cos(ang_fixture_face*math.pi/180), math.sin(ang_fixture_face*math.pi/180),0)
+  lineVec = float3(math.sin(ang_fixture_face*math.pi/180),0,math.cos(ang_fixture_face*math.pi/180))
   logger.debug("lineVec %s" % lineVec)
 
   points = await routines.headprobe_line(client,start_pos, lineVec, 35, 15, 3, 10, -1, 5)
@@ -715,13 +713,13 @@ async def probe_fixture_vertical(client, y_pos_v2):
 
   y_line = Feature()
   await client.GoTo("Tool.Alignment(1,0,0)").complete()
-  orig = APPROX_COR + float3(0,0,-(y_pos_v2)) 
+  orig = APPROX_COR + float3(0,-(y_pos_v2),0) 
 
-  start_pos = orig + float3(-5,FIXTURE_SIDE/2-15,FIXTURE_SIDE/2)
-  await client.GoTo((start_pos + float3(25, 0, 25)).ToXYZString()).complete()
+  start_pos = orig + float3(-FIXTURE_SIDE/2,FIXTURE_SIDE/2-15,-5)
+  await client.GoTo((start_pos + float3(-25, 25, 25)).ToXYZString()).complete()
 
-  drive_vec = float3(0,-1,0)
-  face_norm = float3(0,0,1)
+  drive_vec = float3(0,0,-1)
+  face_norm = float3(-1,0,0)
   points = await routines.headprobe_line_xz(client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,-1,1, 75)
 
   for pt in points:
@@ -740,11 +738,11 @@ async def probe_fixture_horizontal(client, y_pos_v2):
   await client.GoTo("Tool.Alignment(1,0,0)").complete()
 
   orig = APPROX_COR
-  start_pos = orig + float3(-5,-FIXTURE_SIDE/2,FIXTURE_SIDE/2-15)
-  await client.GoTo((start_pos + float3(25, -25, 25)).ToXYZString()).complete()
+  start_pos = orig + float3(FIXTURE_SIDE/2-15,FIXTURE_SIDE/2,-5)
+  await client.GoTo((start_pos + float3(0, 25, 25)).ToXYZString()).complete()
 
-  drive_vec = float3(0,0,-1)
-  face_norm = float3(0,-1,0)
+  drive_vec = float3(-1,0,0)
+  face_norm = float3(0,1,0)
 
   points = await routines.headprobe_line_xz(client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,-1,1)
   for pt in points:
