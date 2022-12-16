@@ -40,9 +40,12 @@ async def probe_spindle_tip(client, spindle_home, ball_dia, x_pos_v2, z_pos_v2):
   already have been run and the resulting center of the best fit sphere should be passed in as spindle_home.
 
   ball_dia needs to be provided as it differs between V2-10 and V2-50 machines.
+
+  spindle_home is a float3 that is the center of the ball at X0Z0. This should be the center
+  of the ball that we probed in the PROBE_SPINDLE_POS stage.
   """
   pts = []
-  orig = spindle_home + float3(x_pos_v2 - 63.5, 0, z_pos_v2)
+  orig = spindle_home + float3(x_pos_v2, 0, z_pos_v2)
   contact_radius = (ball_dia+PROBE_DIA)/2
   a_angle_probe_contact = math.atan2(contact_radius,TOOL_3_LENGTH)*180/math.pi
 
@@ -234,7 +237,7 @@ async def probe_machine_pos(client):
   approachPos = float3(0,0,10)
   await client.GoTo(approachPos.ToXYZString()).ack()
 
-  measPos = float3(0,2,0)
+  measPos = float3(0,7,0)
   L_bracket_top_face = Feature()
   ptMeas = await client.PtMeas("%s,IJK(0,0,1)" % (measPos.ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
@@ -250,14 +253,28 @@ async def probe_machine_pos(client):
   pt = float3.FromXYZString(ptMeas.data_list[0])
   L_bracket_top_face.addPoint(*pt)
 
+  measPos = float3(-50,0,0)
+  ptMeas = await client.PtMeas("%s,IJK(0,0,1)" % (measPos.ToXYZString())).data()
+  pt = float3.FromXYZString(ptMeas.data_list[0])
+  L_bracket_top_face.addPoint(*pt)
+
+  measPos = float3(-60,13,0)
+  ptMeas = await client.PtMeas("%s,IJK(0,0,1)" % (measPos.ToXYZString())).data()
+  pt = float3.FromXYZString(ptMeas.data_list[0])
+  L_bracket_top_face.addPoint(*pt)
+
   # L-bracket back face
   L_bracket_back_face = Feature()
-  approach_pos = float3(-35, 30, 10)
+  approach_pos = float3(-60, 30, 10)
   await client.GoTo(approach_pos.ToXYZString()).ack()
   approach_pos = approach_pos + float3(0, 0, -20)
   await client.GoTo(approach_pos.ToXYZString()).ack()
-  for i in range(3):
-    meas_pos = approach_pos + float3(i * 15, -15, 0)
+  numPoints = 5
+  for i in range(numPoints):
+    minx = 0
+    maxx = 60
+    t = i/(numPoints-1)
+    meas_pos = approach_pos + float3(minx*(1-t)+maxx*t, -15, 0)
     pt_meas = await client.PtMeas("%s,IJK(0,1,0)" % (meas_pos.ToXYZString())).data()
     pt = float3.FromXYZString(pt_meas.data_list[0])
     L_bracket_back_face.addPoint(*pt)
