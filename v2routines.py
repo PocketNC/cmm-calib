@@ -1,4 +1,5 @@
 import logging
+import math
 from ipp import float3, CmmException, readPointData
 import ipp_routines as routines
 from metrology import Feature, FeatureSet
