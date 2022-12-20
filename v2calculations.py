@@ -132,7 +132,18 @@ def calc_sphere_centers(feats):
     positions.addPoint(*pos)
   return positions
 
-def calc_max_dist(pos,feat):
+def calc_max_dist_between_points(feat):
+  max_dist = 0
+  pts = feat.points()
+  for (i,pt) in enumerate(pts):
+    for (j,pt2) in enumerate(pts):
+      if i != j:
+        dist = np.linalg.norm(pt - pt2)
+        if dist > max_dist:
+          max_dist = dist
+  return max_dist
+
+def calc_max_dist_from_pos(pos,feat):
   max_dist = 0
   for pt in feat.points():
     dist = np.linalg.norm(pt - pos)

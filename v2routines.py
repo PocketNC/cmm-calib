@@ -26,7 +26,7 @@ BEST_FIT_SPHERE_ERROR = 0.0254
 
 B_LINE_LENGTH = 35
 
-APPROX_FIXTURE_BALL_HOME = float3(-137.2, -123.4, -112.4)
+APPROX_FIXTURE_BALL_HOME = float3(-133.18, -58.3, -111.0)
 APPROX_COR = float3(-134.9,  -69.7, -80.19999999999999)
 APPROX_B_ROT_CENT = float3(-134.37, -2.0,-80.72999999999999)
 APPROX_A_ROT_CENT = float3(-68.5, -6.93, -81.5,)
@@ -142,7 +142,7 @@ async def probe_spindle_pos(client, machine, x_pos_v2, z_pos_v2):
 
   Returns a list of probed points.
   '''
-  pts = []
+  pts = Feature()
 
   #we will be probing against spindle shaft, approx. 45 mm +Z direction from typical spindle tip position
   Z_OFFSET = 45
@@ -196,7 +196,7 @@ async def probe_spindle_pos(client, machine, x_pos_v2, z_pos_v2):
   pt_meas = await client.PtMeas("%s,IJK(0,0,-1)" % (meas_pos.ToXYZString())).data()
   tip_pt = float3.FromXYZString(pt_meas.data_list[0])
 
-  pts.append(tip_pt)
+  pts.addPoint(*tip_pt)
 
   #take additional points on spindle tip sphere
   #from +X (probe in -X)
@@ -206,7 +206,7 @@ async def probe_spindle_pos(client, machine, x_pos_v2, z_pos_v2):
   meas_pos = tip_pt + float3(contact_radius, 0, contact_radius)
   pt_meas = await client.PtMeas("%s,IJK(1,0,0)" % (meas_pos.ToXYZString())).data()
   pt = float3.FromXYZString(pt_meas.data_list[0])
-  pts.append(pt)
+  pts.addPoint(*pt)
 
   #from +Y (probe in -Y)
   await client.GoTo((tip_pt + float3(clearance_radius, clearance_radius, contact_radius)).ToXYZString()).ack()
@@ -214,7 +214,7 @@ async def probe_spindle_pos(client, machine, x_pos_v2, z_pos_v2):
   meas_pos = tip_pt + float3(0, contact_radius, contact_radius)
   pt_meas = await client.PtMeas("%s,IJK(0,1,0)" % (meas_pos.ToXYZString())).data()
   pt = float3.FromXYZString(pt_meas.data_list[0])
-  pts.append(pt)
+  pts.addPoint(*pt)
 
   #from -X (probe in +X)
   await client.GoTo((tip_pt + float3(-clearance_radius, clearance_radius, contact_radius)).ToXYZString()).ack()
@@ -222,9 +222,9 @@ async def probe_spindle_pos(client, machine, x_pos_v2, z_pos_v2):
   meas_pos = tip_pt + float3(-contact_radius, 0, contact_radius)
   pt_meas = await client.PtMeas("%s,IJK(-1,0,0)" % (meas_pos.ToXYZString())).data()
   pt = float3.FromXYZString(pt_meas.data_list[0])
-  pts.append(pt)
+  pts.addPoint(*pt)
 
-  return Feature(pts)
+  return pts
 
 async def go_to_clearance_y(client, y=250):
   await client.GoTo("Y(%s)" % y).complete()
@@ -323,15 +323,16 @@ async def probe_fixture_ball_pos(client, fixture_home, y_pos_v2):
   Probe the position of the ball on the calibration fixture. This should first be called with fixture_home as APPROX_FIXTURE_BALL_HOME and
   subsequent calls should use the more accurate position calculated from the best fit sphere of those points.
   """
-  pts = []
+  pts = Feature()
 
-  orig = fixture_home + float3(0,-(y_pos_v2-63.5), 0)
+  logger.debug("fixture_home %s %s", fixture_home, type(fixture_home))
+  orig = float3(fixture_home) + float3(0,-y_pos_v2, 0)
   tool_orig = orig + TOOL_3_LENGTH*float3(0,1,0)
   contact_radius = (FIXTURE_BALL_DIA+PROBE_DIA)/2
   clearance_radius = contact_radius + 2
   a_angle_probe_contact = math.atan2(contact_radius,TOOL_3_LENGTH)*180/math.pi
 
-  await client.GoTo("Tool.Alignment(0,0,1,1,0,0)").complete()
+  await client.GoTo("Tool.Alignment(0,1,0)").complete()
   await client.GoTo((orig + float3(0,25,0)).ToXYZString()).complete()
   getCurrPosCmd = await client.Get("X(),Y(),Z()").complete()
   currPos = readPointData(getCurrPosCmd.data_list[0])
@@ -349,7 +350,7 @@ async def probe_fixture_ball_pos(client, fixture_home, y_pos_v2):
   contact_pos = orig + float3(contact_radius,0,0) 
   ptMeas = await client.PtMeas("%s,IJK(1,0,0)" % (contact_pos.ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.append(pt)
+  pts.addPoint(*pt)
 
   # move to -Z pos, probe in +Z dir
   start_pos = orig + float3(0,0,-clearance_radius)
@@ -358,7 +359,7 @@ async def probe_fixture_ball_pos(client, fixture_home, y_pos_v2):
   await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
   ptMeas = await client.PtMeas("%s,IJK(0,0,-1)" % ((orig + float3(0,0,-contact_radius)).ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.append(pt)
+  pts.addPoint(*pt)
 
   # move to -X pos, probe in +X dir
   start_pos = orig + float3(-clearance_radius,0,0) 
@@ -367,7 +368,7 @@ async def probe_fixture_ball_pos(client, fixture_home, y_pos_v2):
   await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
   ptMeas = await client.PtMeas("%s,IJK(-1,0,0)" % ((orig + float3(-contact_radius,0,0)).ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.append(pt)
+  pts.addPoint(*pt)
 
   #rise 2mm and probe another 3 points
   orig = orig + float3(0,2,0)
@@ -379,7 +380,7 @@ async def probe_fixture_ball_pos(client, fixture_home, y_pos_v2):
   await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
   ptMeas = await client.PtMeas("%s,IJK(-1,0,0)" % ((orig + float3(-contact_radius,0,0)).ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.append(pt)
+  pts.addPoint(*pt)
 
   # move to -Z pos, probe in +Z dir
   start_pos = orig + float3(0,0,-clearance_radius)
@@ -388,7 +389,7 @@ async def probe_fixture_ball_pos(client, fixture_home, y_pos_v2):
   await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
   ptMeas = await client.PtMeas("%s,IJK(0,0,-1)" % ((orig + float3(0,0,-contact_radius)).ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.append(pt)
+  pts.addPoint(*pt)
 
   # move to +X pos, probe in -X dir
   start_pos = orig + float3(clearance_radius,0,0) 
@@ -397,11 +398,11 @@ async def probe_fixture_ball_pos(client, fixture_home, y_pos_v2):
   await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
   ptMeas = await client.PtMeas("%s,IJK(1,0,0)" % ((orig + float3(contact_radius,0,0)).ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.append(pt) 
+  pts.addPoint(*pt) 
 
-  await client.GoTo((orig + float3(0,50,0)).ToXYZString()).complete()
+  await client.GoTo((orig + float3(0,75,0)).ToXYZString()).complete()
 
-  return Feature(pts)
+  return pts
 
 async def probe_home_offset_y(client, y_pos_v2, a_pos_v2, b_pos_v2):
   '''
