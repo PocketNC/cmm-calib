@@ -124,3 +124,18 @@ def calc_ccw_angle_from_x(line, x_dir, y_dir, z_dir, origin):
   angle = angle_between_ccw_2d([1, 0], [x, y])
 
   return angle
+
+def calc_sphere_centers(feats):
+  positions = Feature()
+  for feat in feats.values():
+    (rad, pos) = feat.sphere()
+    positions.addPoint(*pos)
+  return positions
+
+def calc_max_dist(pos,feat):
+  max_dist = 0
+  for pt in feat.points():
+    dist = np.linalg.norm(pt - pos)
+    if dist > max_dist:
+      max_dist = dist
+  return max_dist
