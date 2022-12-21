@@ -3,6 +3,7 @@ import math
 from ipp import float3, CmmException, readPointData
 import ipp_routines as routines
 from metrology import Feature, FeatureSet
+from scipy.spatial.transform import Rotation
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -27,11 +28,11 @@ BEST_FIT_SPHERE_ERROR = 0.0254
 B_LINE_LENGTH = 35
 
 APPROX_FIXTURE_BALL_HOME = float3(-133.18, -58.3, -111.0)
-APPROX_COR = float3(-134.9,  -69.7, -80.19999999999999)
-APPROX_B_ROT_CENT = float3(-134.37, -2.0,-80.72999999999999)
-APPROX_A_ROT_CENT = float3(-68.5, -6.93, -81.5,)
+APPROX_COR = float3(-134.9,  -69.7, -80.2)
+APPROX_FIXTURE_TOP_PLANE_CENTER = float3(-134.37, -65.5,-80.73)
+ORIGIN_A_START_PROBE_POS = float3(-68.5, -69.7, -80.2)
 PROBE_FIXTURE_PLANE_A90_WAYPOINT = float3(-116.0, -41.5, -74.9)
-PROBE_FIXTURE_TIP_WAYPOINT = float3(-155.5, -83.53, -52.3)
+APPROX_FIN_TIP = float3(-152.27,-12,-53.28)
 V2_10 = "V2_10"
 V2_50 = "V2_50"
 
@@ -441,7 +442,7 @@ async def probe_home_offset_y(client, y_pos_v2, a_pos_v2, b_pos_v2):
   return Feature(pts)
 
 async def probe_top_plane(client, y_pos_v2):
-  orig = APPROX_B_ROT_CENT + float3(0,(-y_pos_v2 - 63.5),0)
+  orig = APPROX_FIXTURE_TOP_PLANE_CENTER + float3(0,-y_pos_v2,0)
   await client.GoTo("Tool.Alignment(0,1,0)").send()
   await client.SetProp("Tool.PtMeasPar.HeadTouch(0)").send()
   await client.GoTo((orig + float3(0,100,0)).ToXYZString()).ack()
@@ -533,8 +534,8 @@ async def probe_home_offset_x(client, y_pos_v2, a_pos_v2, b_pos_v2):
   return feat
 
 async def initial_probe_a(client, y_pos_v2, a_pos_v2):
-  orig = APPROX_A_ROT_CENT
-  a_cor = orig + float3(0,(-y_pos_v2 - 63.5),0)
+  orig = ORIGIN_A_START_PROBE_POS
+  a_cor = orig + float3(0,-y_pos_v2,0)
 
   await client.SetProp("Tool.PtMeasPar.Search(12)").ack()
   await client.GoTo((a_cor + float3(-100, 150, 0)).ToXYZString()).complete()
@@ -545,73 +546,46 @@ async def probe_a(client, y_pos_v2, a_pos_v2):
   '''
   Probe points along the shark fin on the calibration fixture. Returns a feature with those points.
   '''
-  orig = APPROX_A_ROT_CENT
-  a_cor = orig + float3(0,(-y_pos_v2 - 63.5),0)
-  vec_a_cor_to_orig_fixture_tip = (PROBE_FIXTURE_TIP_WAYPOINT+float3(0,(126.5),0)) - APPROX_A_ROT_CENT
-  fixture_offset_angle = 0
-  fixture_length = 50.8
-  vec_cor_to_orig_start = vec_a_cor_to_orig_fixture_tip + float3(0,-2,0) # down a bit away from edge
-  dist_cor_to_start = math.sqrt(vec_cor_to_orig_start.z*vec_cor_to_orig_start.z + vec_cor_to_orig_start.y*vec_cor_to_orig_start.y) + 2
-  angle_offset_start = math.atan2(vec_cor_to_orig_start.y,vec_cor_to_orig_start.x)*180/math.pi
+  orig = ORIGIN_A_START_PROBE_POS
+  a_cor = orig + float3(0,-y_pos_v2,0)
+  vec_a_cor_to_orig_fixture_tip = APPROX_FIN_TIP - ORIGIN_A_START_PROBE_POS
+  vec_cor_to_orig_start = vec_a_cor_to_orig_fixture_tip + float3(0,-2,0) # down a bit from tip of fin
+
+  # rotate nominal touch point about x by a_pos_v2
+  r = Rotation.from_euler('x', a_pos_v2, degrees=True)
+  vectors = r.apply([ vec_cor_to_orig_start, (0,-1,0), (0,0,1) ])
+  start_pos = float3(vectors[0]) + ORIGIN_A_START_PROBE_POS
+  drive_vec = float3(vectors[1])
+  face_norm = float3(vectors[2])
 
   # Do a head-probe line against 1 face of the probing fixture
   a_line = Feature()
 
-  total_angle =  fixture_offset_angle - a_pos_v2
-  angle_start_pos = total_angle + angle_offset_start
-  logger.debug('vec_cor_to_orig_start %s' % vec_cor_to_orig_start)
-  logger.debug('angle_offset_start %s' % angle_offset_start)
-  logger.debug('start origin Rad %s' % dist_cor_to_start)
-  logger.debug('start pos angle %s' % angle_start_pos)
-  
-  start_pos = a_cor + float3(vec_a_cor_to_orig_fixture_tip.y,dist_cor_to_start * math.sin(angle_start_pos*math.pi/180),dist_cor_to_start * math.cos(angle_start_pos*math.pi/180),)
-  logger.debug('start pos %s' % start_pos)
-  
-  drive_angle = total_angle - 90
-  drive_vec = float3(0, math.sin(drive_angle*math.pi/180), math.cos(drive_angle*math.pi/180))
-  face_norm = float3(0, -drive_vec.z, drive_vec.y)
-  logger.debug("drive_vec %s" % drive_vec)
-  points = await routines.headprobe_line_yz(client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,3,1)
+  await client.AlignTool("%s,%s,%s,0" % (-1,0,0))).ack()
+  await client.GoTo((start_pos + float3(-10, 0, 0)).ToXYZString()).ack()
+
+  points = await routines.headline(client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,3,-1,10)
   for pt in points:
     a_line.addPoint(*pt)
 
   end_pos = start_pos + drive_vec * B_LINE_LENGTH
   retract_pos = end_pos + face_norm * 20
 
-  await client.GoTo((retract_pos).ToXYZString()).ack()
+  await client.GoTo((retract_pos).ToXYZString()).complete()
 
   return a_line
 
 
-async def initial_probe_b(client, y_pos_v2, a_pos_v2):
-  orig = APPROX_B_ROT_CENT
-  pos_bcor = orig + float3(0,(-y_pos_v2 - 63.5),0)
-  fixtureOffsetAngle = FIXTURE_OFFSET_B_ANGLE
+async def initial_probe_b(client, y_pos_v2, b_pos_v2):
+  orig = APPROX_FIXTURE_TOP_PLANE_CENTER
+  pos_bcor = orig + float3(0,-y_pos_v2,0)
   fixture_length = FIXTURE_SIDE
-  #calculate some offsets 
-  #we'll use the nominal b-45 start-pos for reference
-  #(at b-45, the fixture face is approx. parallel to PartCsy Y axis)
-  vec_bcor_to_startpos45 = float3(0.5*fixture_length-20,0,-0.5*fixture_length)
-  dist_bcor_to_startpos45 = math.sqrt(vec_bcor_to_startpos45.x*vec_bcor_to_startpos45.x + vec_bcor_to_startpos45.z*vec_bcor_to_startpos45.z)
-  ang_bcor_to_startpos45 = math.atan2(vec_bcor_to_startpos45.x,vec_bcor_to_startpos45.z)*180/math.pi
-
-  ang_bcor_to_startpos = (b_pos_v2 - 45) + ang_bcor_to_startpos45
-  logger.debug('ang_bcor_to_startpos %s' % ang_bcor_to_startpos)
-  ang_fixture_face = b_pos_v2 + FIXTURE_OFFSET_B_ANGLE
-  logger.debug('ang_fixture_face %s' % ang_fixture_face)
-
-  fixture_face_angle = b_pos_v2 + FIXTURE_OFFSET_B_ANGLE
-  totAngle = b_pos_v2 + fixtureOffsetAngle
-  # start_posAngle = totAngle + start_posOffsetAngle
-  # print('start_posOriginVec %s' % start_posOriginVec)
-  # print('start_posOffsetAngle %s' % start_posOffsetAngle)
-  # print('start origin Rad %s' % start_posOriginRad)
-  # print('start pos angle %s' % start_posAngle)
-  start_pos = pos_bcor + float3(dist_bcor_to_startpos45 * math.sin(ang_bcor_to_startpos*math.pi/180), -6, dist_bcor_to_startpos45 * math.cos(ang_bcor_to_startpos*math.pi/180))
 
   await client.SetProp("Tool.PtMeasPar.Search(15)").ack()
   await client.SetProp("Tool.PtMeasPar.HeadTouch(1)").complete()
-  await client.GoTo("Tool.A(0)").complete()
+  await client.AlignTool("0,1,0,0").complete()
+  vec_bcor_to_startpos45 = float3(0.5*fixture_length-20,0,0-0.5*fixture_length)
+  start_pos = vec_bcor_to_startpos45 + pos_bcor 
   await client.GoTo((start_pos + float3(0, 25, 0)).ToXYZString()).complete()
 
 async def probe_b_pos(self, y_pos_v2, b_pos_v2):
@@ -721,41 +695,28 @@ async def probe_b(client, y_pos_v2, b_pos_v2):
   Do a head-probe line against 1 face of the probing fixture
   The fixture face being probed is on the upper rectangle, opposite from the peak of the vertical fin
   '''
-  orig = APPROX_B_ROT_CENT
-  pos_bcor = orig + float3(0,(-y_pos_v2 - 63.5),0)
-  fixtureOffsetAngle = FIXTURE_OFFSET_B_ANGLE
+  orig = APPROX_FIXTURE_TOP_PLANE_CENTER
+  pos_bcor = orig + float3(0,-y_pos_v2,0)
   fixture_length = FIXTURE_SIDE
   #calculate some offsets 
   #we'll use the nominal b-45 start-pos for reference
   #(at b-45, the fixture face is approx. parallel to PartCsy Y axis)
   vec_bcor_to_startpos45 = float3(0.5*fixture_length-20,0,0-0.5*fixture_length)
-  dist_bcor_to_startpos45 = math.sqrt(vec_bcor_to_startpos45.x*vec_bcor_to_startpos45.x + vec_bcor_to_startpos45.z*vec_bcor_to_startpos45.z)
-  ang_bcor_to_startpos45 = math.atan2(vec_bcor_to_startpos45.x,vec_bcor_to_startpos45.z)*180/math.pi
+  ##dist_bcor_to_startpos45 = math.sqrt(vec_bcor_to_startpos45.x*vec_bcor_to_startpos45.x + vec_bcor_to_startpos45.z*vec_bcor_to_startpos45.z)
+  ##ang_bcor_to_startpos45 = math.atan2(vec_bcor_to_startpos45.x,vec_bcor_to_startpos45.z)*180/math.pi
   b_line = Feature()
 
-  ang_bcor_to_startpos = (b_pos_v2 - 45) + ang_bcor_to_startpos45
-  logger.debug('ang_bcor_to_startpos %s' % ang_bcor_to_startpos)
-  ang_fixture_face = b_pos_v2 + FIXTURE_OFFSET_B_ANGLE
-  logger.debug('ang_fixture_face %s' % ang_fixture_face)
-
-  fixture_face_angle = b_pos_v2 + FIXTURE_OFFSET_B_ANGLE
-  totAngle = b_pos_v2 + fixtureOffsetAngle
-  # start_posAngle = totAngle + start_posOffsetAngle
-  # print('start_posOriginVec %s' % start_posOriginVec)
-  # print('start_posOffsetAngle %s' % start_posOffsetAngle)
-  # print('start origin Rad %s' % start_posOriginRad)
-  # print('start pos angle %s' % start_posAngle)
   start_pos = pos_bcor + float3(dist_bcor_to_startpos45 * math.sin(ang_bcor_to_startpos*math.pi/180),-6,dist_bcor_to_startpos45 * math.cos(ang_bcor_to_startpos*math.pi/180))
-  # start_pos = orig + float3(start_posOriginRad * math.cos(start_posAngle*math.pi/180), start_posOriginRad * math.sin(start_posAngle*math.pi/180),-6)
-  await client.SetProp("Tool.PtMeasPar.Search(15)").ack()
 
-  logger.debug('start pos %s' % start_pos)
+  vec_cor_to_orig_start = float3(0.5*fixture_length-20,0,0-0.5*fixture_length)
+  # rotate nominal touch point about y by b_pos_v2
+  r = Rotation.from_euler('y', b_pos_v2, degrees=True)
+  vectors = r.apply([ vec_cor_to_orig_start, (-1,-1,0), (1,-1,1) ])
+  start_pos = float3(vectors[0]) + APPROX_FIXTURE_TOP_PLANE_CENTER
+  drive_vec = float3(vectors[1])
+  face_norm = float3(vectors[2])
 
-  lineAngle = totAngle + 90
-  lineVec = float3(math.sin(ang_fixture_face*math.pi/180),0,math.cos(ang_fixture_face*math.pi/180))
-  logger.debug("lineVec %s" % lineVec)
-
-  points = await routines.headprobe_line(client,start_pos, lineVec, 35, 15, 3, 10, -1, 5)
+  points = await routines.headline(client,start_pos, drive_vec,B_LINE_LENGTH,face_norm,3, -1,10)
   for pt in points:
     b_line.addPoint(*pt)
 

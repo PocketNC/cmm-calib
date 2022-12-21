@@ -1,7 +1,7 @@
 import os
 import json
 from enum import Enum, auto
-from metrology import FeatureSet, Feature
+from metrology import Feature, convertJSONDataToFeatures
 import logging
 
 logger = logging.getLogger(__name__)
@@ -9,10 +9,7 @@ logger = logging.getLogger(__name__)
 class CalibStateEncoder(json.JSONEncoder):
   def default(self, o):
     if isinstance(o, Feature):
-      return [ [ x, y, z ] for (x,y,z) in o.points() ]
-
-    if isinstance(o, FeatureSet):
-      return o.features
+      return o.toJSON()
 
     return super().default(o)
 
@@ -39,16 +36,17 @@ class Stages(Enum):
   PROBE_MACHINE_POS = auto()
   PROBE_SPINDLE_POS = auto()
   HOMING_X = auto()
+  CHARACTERIZE_X = auto()
   HOMING_Z = auto()
+  CHARACTERIZE_Z = auto()
   PROBE_FIXTURE_BALL_POS = auto()
   HOMING_Y = auto()
+  CHARACTERIZE_Y = auto()
+  PROBE_TOP_PLANE = auto()
+  PROBE_HOME_OFFSETS = auto()
 
   HOMING_A = auto()
   HOMING_B = auto()
-  CHARACTERIZE_X = auto()
-  CHARACTERIZE_Y = auto()
-  CHARACTERIZE_Z = auto()
-  PROBE_TOP_PLANE = auto()
   SETUP_CNC_CSY = auto()
   CHARACTERIZE_A = auto()
   CHARACTERIZE_B = auto()
@@ -58,7 +56,6 @@ class Stages(Enum):
   RESTART_CNC: auto()
   SETUP_VERIFY = auto()
   TOOL_PROBE_OFFSET = auto()
-  PROBE_HOME_OFFSETS = auto()
   VERIFY_A_HOMING = auto()
   VERIFY_B_HOMING = auto()
   VERIFY_A = auto()
@@ -84,7 +81,8 @@ class CalibState:
 
     return calibStateInstance
 
-  def __init__(self, dir=DEFAULT_STAGES_DIR):
+  def __init__(self, dir=DEFAULT_STAGES_DIR, enumClass=Stages):
+    self.enumClass = enumClass
     self.dir = dir
     if not os.path.exists(dir):
       os.makedirs(dir)
@@ -93,36 +91,26 @@ class CalibState:
 
   def getStage(self, stage):
     if type(stage) == int:
-      stage = Stages(stage)
+      stage = self.enumClass(stage)
     elif type(stage) == str:
-      stage = Stages[stage]
+      stage = self.enumClass[stage]
 
     if stage not in self.stages:
-      try:
-        features = FeatureSet()
-        self.stages[stage] = features
-        with open(os.path.join(self.dir, stage.name), 'r') as f:
-          data = json.loads(f.read())
-          for k in data:
-            features.setFeature(k, Feature(data[k]))
-      except:
-        logger.debug("Error reading in stage data for stage %s, starting with empty FeatureSet" % (stage,))
-        features = FeatureSet()
-        self.stages[stage] = features
+      with open(os.path.join(self.dir, stage.name), 'r') as f:
+        rawData = json.loads(f.read())
 
-    return self.stages[stage]
+        self.stages[stage] = rawData
 
-  def saveStage(self, stage):
+    return convertJSONDataToFeatures(self.stages[stage])
+
+  def saveStage(self, stage, data):
     if type(stage) == int:
-      stage = Stages(stage)
+      stage = self.enumClass(stage)
     elif type(stage) == str:
-      stage = Stages[stage]
+      stage = self.enumClass[stage]
 
-    if stage not in self.stages:
-      raise CalibException("No data to save to stage %s" % (stage,))
-    else:
-      logger.debug("Saving stage %s", stage)
-      features = self.stages[stage]
-      with open(os.path.join(self.dir, stage.name), 'w') as f:
-        data = json.dumps(features, cls=CalibStateEncoder)
-        f.write(data)
+    logger.debug("Saving stage %s", stage)
+    self.stages[stage] = data
+    with open(os.path.join(self.dir, stage.name), 'w') as f:
+      dataStr = json.dumps(data, cls=CalibStateEncoder)
+      f.write(dataStr)

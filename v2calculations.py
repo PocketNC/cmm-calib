@@ -127,7 +127,7 @@ def calc_ccw_angle_from_x(line, x_dir, y_dir, z_dir, origin):
 
 def calc_sphere_centers(feats):
   positions = Feature()
-  for feat in feats.values():
+  for feat in feats:
     (rad, pos) = feat.sphere()
     positions.addPoint(*pos)
   return positions
