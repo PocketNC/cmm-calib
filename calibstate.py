@@ -1,3 +1,6 @@
+"""
+State management for calibration process.
+"""
 import os
 import json
 from enum import Enum, auto

@@ -1,3 +1,6 @@
+"""
+Helper functions for performing calculations on probed `metrology.Feature`s and other data.
+"""
 import numpy as np
 import math
 from metrology import Feature, angle_between_ccw_2d, intersectLines, angle_between

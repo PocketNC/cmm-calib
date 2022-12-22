@@ -1,8 +1,11 @@
+"""
+Functions used to perform calibration routines on the cmm that return `metrology.Feature`s and other data that will be stored using `calibstate`.
+"""
 import logging
 import math
 from ipp import float3, CmmException, readPointData
 import ipp_routines as routines
-from metrology import Feature, FeatureSet
+from metrology import Feature
 from scipy.spatial.transform import Rotation
 import numpy as np
 
@@ -437,7 +440,7 @@ async def probe_home_offset_y(client, y_pos_v2, a_pos_v2, b_pos_v2):
   pt = float3.FromXYZString(ptMeas.data_list[0])
   pts.append(pt)
   
-  await cmm.GoTo("X(%s)" % X_CLEARANCE_PART_CSY).complete()
+  await client.GoTo("X(%s)" % X_CLEARANCE_PART_CSY).complete()
 
   return Feature(pts)
 
@@ -561,7 +564,7 @@ async def probe_a(client, y_pos_v2, a_pos_v2):
   # Do a head-probe line against 1 face of the probing fixture
   a_line = Feature()
 
-  await client.AlignTool("%s,%s,%s,0" % (-1,0,0))).ack()
+  await client.AlignTool("%s,%s,%s,0" % (-1,0,0)).ack()
   await client.GoTo((start_pos + float3(-10, 0, 0)).ToXYZString()).ack()
 
   points = await routines.headline(client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,3,-1,10)
