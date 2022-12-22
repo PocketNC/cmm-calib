@@ -319,7 +319,7 @@ async def probe_machine_pos(client):
 
   return (L_bracket_top_face, L_bracket_back_face, L_bracket_right_face)
 
-async def probe_fixture_ball_pos(client, fixture_home, y_pos_v2):
+async def probe_fixture_ball_top(client, fixture_home, y_pos_v2):
   """
   Probe the position of the ball on the calibration fixture. This should first be called with fixture_home as APPROX_FIXTURE_BALL_HOME and
   subsequent calls should use the more accurate position calculated from the best fit sphere of those points.
@@ -542,7 +542,7 @@ async def initial_probe_a(client, y_pos_v2, a_pos_v2):
   await client.GoTo("Tool.Alignment(-1,0,0)").complete()
   await client.GoTo((a_cor + float3(-200, 0, 0)).ToXYZString()).complete()
 
-async def probe_a(client, y_pos_v2, a_pos_v2):
+async def probe_a_line(client, y_pos_v2, a_pos_v2):
   '''
   Probe points along the shark fin on the calibration fixture. Returns a feature with those points.
   '''
@@ -575,6 +575,111 @@ async def probe_a(client, y_pos_v2, a_pos_v2):
 
   return a_line
 
+async def probe_fixture_ball_side(client, fixture_home, y_pos_v2, a_pos_v2):
+  '''
+  Probe the fixture ball with stylus 'to the side', at any A-axis position
+  When at A0, probe stylus is aligned approximately with Z-axis
+  '''
+  logger.debug("fixture_home %s %s", fixture_home, type(fixture_home))
+  pts = Feature()
+
+  contact_radius = (FIXTURE_BALL_DIA+PROBE_DIA)/2
+  clearance_radius = contact_radius + 2
+  cor = APPROX_COR + float3(0,-y_pos_v2,0)
+  cor_to_ball = fixture_home - APPROX_COR
+
+  r = Rotation.from_euler('x', a_pos_v2, degrees=True)
+  vectors = r.apply([ cor_to_ball, float3(0,0,-1), float3(contact_radius, 0,0), float3(clearance_radius, 0,0), float3(0,contact_radius,0), float3(0,clearance_radius,0) ])
+  vec_cor_to_ball = float3(vectors[0])
+  ball_pos = vec_cor_to_ball + cor
+  spindle_ijk = float3(vectors[1]).normalize()
+  tool_orig = ball_pos + spindle_ijk * TOOL_3_LENGTH
+  x_contact = float3(vectors[2])
+  x_clearance = float3(vectors[3])
+  y_contact = float3(vectors[4])
+  y_clearance = float3(vectors[5])
+
+
+  await client.SetProp("Tool.PtMeasPar.HeadTouch(1)").send()
+  await client.SetProp("Tool.PtMeasPar.Search(6)").complete()
+  
+  await client.AlignTool("%s,%s,%s,0" % (spindle_ijk[0],spindle_ijk[1],spindle_ijk[2])).ack()
+  approach_pos = 2*vec_cor_to_ball + cor
+  await client.GoTo("%s" % (approach_pos.ToXYZString())).ack()
+
+  #at A0 this probe is from +X pos, in -X dir
+  start_pos = ball_pos + x_clearance
+  tool_alignment = np.array(((start_pos) - tool_orig).normalize())
+  await client.AlignTool("%s,%s,%s,0" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])).ack()
+  await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
+  contact_pos = ball_pos + x_contact
+  approach_vec = contact_pos - start_pos
+  ptMeas = await client.PtMeas("%s,%s" % (contact_pos.ToXYZString(),approach_vec.ToIJKString())).data()
+  pt = float3.FromXYZString(ptMeas.data_list[0])
+  pts.addPoint(*pt)
+
+  #at A0 this probe is from +Y pos, in -Y dir
+  start_pos = ball_pos + y_clearance
+  tool_alignment = np.array(((start_pos) - tool_orig).normalize())
+  await client.AlignTool("%s,%s,%s,0" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])).ack()
+  await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
+  contact_pos = ball_pos + y_contact
+  approach_vec = contact_pos - start_pos
+  ptMeas = await client.PtMeas("%s,%s" % (contact_pos.ToXYZString(),approach_vec.ToIJKString())).data()
+  pt = float3.FromXYZString(ptMeas.data_list[0])
+  pts.addPoint(*pt)
+
+  #at A0 this probe is from -X pos, in +X dir
+  start_pos = ball_pos - x_clearance
+  tool_alignment = np.array(((start_pos) - tool_orig).normalize())
+  await client.AlignTool("%s,%s,%s,0" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])).ack()
+  await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
+  contact_pos = ball_pos - x_contact
+  approach_vec = contact_pos - start_pos
+  ptMeas = await client.PtMeas("%s,%s" % (contact_pos.ToXYZString(),approach_vec.ToIJKString())).data()
+  pt = float3.FromXYZString(ptMeas.data_list[0])
+  pts.addPoint(*pt)
+
+  #rise 2mm above the ball-equator (towards -Z at A0) and probe 3 more points
+  ball_pos = ball_pos + 2*spindle_ijk
+  tool_orig = ball_pos + spindle_ijk * TOOL_3_LENGTH
+
+  #at A0 this probe is from -X pos, in +X dir
+  start_pos = ball_pos - x_clearance
+  tool_alignment = np.array(((start_pos) - tool_orig).normalize())
+  await client.AlignTool("%s,%s,%s,0" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])).ack()
+  await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
+  contact_pos = ball_pos - x_contact
+  approach_vec = contact_pos - start_pos
+  ptMeas = await client.PtMeas("%s,%s" % (contact_pos.ToXYZString(),approach_vec.ToIJKString())).data()
+  pt = float3.FromXYZString(ptMeas.data_list[0])
+  pts.addPoint(*pt)
+
+  #at A0 this probe is from +Y pos, in -Y dir
+  start_pos = ball_pos + y_clearance
+  tool_alignment = np.array(((start_pos) - tool_orig).normalize())
+  await client.AlignTool("%s,%s,%s,0" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])).ack()
+  await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
+  contact_pos = ball_pos + y_contact
+  approach_vec = contact_pos - start_pos
+  ptMeas = await client.PtMeas("%s,%s" % (contact_pos.ToXYZString(),approach_vec.ToIJKString())).data()
+  pt = float3.FromXYZString(ptMeas.data_list[0])
+  pts.addPoint(*pt)
+
+  #at A0 this probe is from +X pos, in -X dir
+  start_pos = ball_pos + x_clearance
+  tool_alignment = np.array(((start_pos) - tool_orig).normalize())
+  await client.AlignTool("%s,%s,%s,0" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])).ack()
+  await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
+  contact_pos = ball_pos + x_contact
+  approach_vec = contact_pos - start_pos
+  ptMeas = await client.PtMeas("%s,%s" % (contact_pos.ToXYZString(),approach_vec.ToIJKString())).data()
+  pt = float3.FromXYZString(ptMeas.data_list[0])
+  pts.addPoint(*pt)
+  
+  await client.GoTo("%s" % (approach_pos.ToXYZString())).ack()
+  
+  return pts
 
 async def initial_probe_b(client, y_pos_v2, b_pos_v2):
   orig = APPROX_FIXTURE_TOP_PLANE_CENTER

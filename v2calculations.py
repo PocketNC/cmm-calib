@@ -150,3 +150,25 @@ def calc_max_dist_from_pos(pos,feat):
     if dist > max_dist:
       max_dist = dist
   return max_dist
+
+def calc_home_offset_x(self, points, x_dir, y_dir, z_dir, origin, x0, x_home_offset):
+  """
+  """
+  x_vals = []
+  for pt in points():
+    pt_cnccsy = np.matmul(self.cmm2cnc,np.append(pt,1))
+    x_vals.append(pt_cnccsy[0])
+  x_avg = np.array(x_vals).mean()
+  x_offset_err = x_avg - x0
+  return x_home_offset + x_offset_err
+
+def calc_home_offset_y(self, points, x_dir, y_dir, z_dir, origin, y0, y_home_offset):
+  """
+  """
+  y_vals = []
+  for pt in points():
+    pt_cnccsy = np.matmul(self.cmm2cnc,np.append(pt,1))
+    y_vals.append(pt_cnccsy[1])
+  y_avg = np.array(y_vals).mean()
+  y_offset_err = y_avg - y0
+  return y_home_offset + y_offset_err
