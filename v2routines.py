@@ -698,17 +698,8 @@ async def probe_b(client, y_pos_v2, b_pos_v2):
   orig = APPROX_FIXTURE_TOP_PLANE_CENTER
   pos_bcor = orig + float3(0,-y_pos_v2,0)
   fixture_length = FIXTURE_SIDE
-  #calculate some offsets 
-  #we'll use the nominal b-45 start-pos for reference
-  #(at b-45, the fixture face is approx. parallel to PartCsy Y axis)
-  vec_bcor_to_startpos45 = float3(0.5*fixture_length-20,0,0-0.5*fixture_length)
-  ##dist_bcor_to_startpos45 = math.sqrt(vec_bcor_to_startpos45.x*vec_bcor_to_startpos45.x + vec_bcor_to_startpos45.z*vec_bcor_to_startpos45.z)
-  ##ang_bcor_to_startpos45 = math.atan2(vec_bcor_to_startpos45.x,vec_bcor_to_startpos45.z)*180/math.pi
-  b_line = Feature()
-
-  start_pos = pos_bcor + float3(dist_bcor_to_startpos45 * math.sin(ang_bcor_to_startpos*math.pi/180),-6,dist_bcor_to_startpos45 * math.cos(ang_bcor_to_startpos*math.pi/180))
-
   vec_cor_to_orig_start = float3(0.5*fixture_length-20,0,0-0.5*fixture_length)
+  
   # rotate nominal touch point about y by b_pos_v2
   r = Rotation.from_euler('y', b_pos_v2, degrees=True)
   vectors = r.apply([ vec_cor_to_orig_start, (-1,-1,0), (1,-1,1) ])
@@ -716,7 +707,8 @@ async def probe_b(client, y_pos_v2, b_pos_v2):
   drive_vec = float3(vectors[1])
   face_norm = float3(vectors[2])
 
-  points = await routines.headline(client,start_pos, drive_vec,B_LINE_LENGTH,face_norm,3, -1,10)
+  b_line = Feature()
+  points = await routines.headline(client,start_pos, drive_vec, B_LINE_LENGTH, face_norm,3,-1,10)
   for pt in points:
     b_line.addPoint(*pt)
 
