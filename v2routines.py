@@ -26,8 +26,6 @@ FIXTURE_OFFSET_B_ANGLE = 225
 PROBE_DIA = 4
 TOOL_3_LENGTH = 117.8
 
-BEST_FIT_SPHERE_ERROR = 0.0254
-
 B_LINE_LENGTH = 35
 
 APPROX_FIXTURE_BALL_HOME = float3(-133.18, -58.3, -111.0)
@@ -342,7 +340,8 @@ async def probe_fixture_ball_top(client, fixture_home, y_pos_v2):
   currPos = readPointData(getCurrPosCmd.data_list[0])
 
   await client.SetProp("Tool.PtMeasPar.HeadTouch(1)").complete()
-  await client.SetProp("Tool.PtMeasPar.Search(6)").complete()
+  await client.SetProp("Tool.PtMeasPar.Approach(2)").send()
+  await client.SetProp("Tool.PtMeasPar.Search(3)").complete()
 
   #place tip pos +X from target
   start_pos = orig + float3(clearance_radius,0,0) 
@@ -404,7 +403,7 @@ async def probe_fixture_ball_top(client, fixture_home, y_pos_v2):
   pt = float3.FromXYZString(ptMeas.data_list[0])
   pts.addPoint(*pt) 
 
-  await client.GoTo((orig + float3(0,75,0)).ToXYZString()).complete()
+  await client.GoTo((orig + float3(0,100,0)).ToXYZString()).complete()
 
   return pts
 
@@ -413,16 +412,16 @@ async def probe_home_offset_y(client, y_pos_v2, a_pos_v2, b_pos_v2):
   Probe top and bottom faces of fixture 
   with A at ~90 and B rotated so top/bottom faces are perpendicular to Y-axis
   '''
-  pts = []
+  feat = Feature()
   await client.GoTo("Tool.Alignment(0,0,1)").complete()
 
   orig = APPROX_COR + float3(0,-(y_pos_v2),0) 
-  start_pos = orig + float3(FIXTURE_SIDE/2-15,FIXTURE_SIDE/2,-5)
+  start_pos = orig + float3(FIXTURE_SIDE/2-15,FIXTURE_SIDE/2,-4)
   await client.GoTo((start_pos + float3(0,25,25)).ToXYZString()).complete()
 
   drive_vec = float3(-1,0,0)
   face_norm = float3(0,1,0)
-  points = await routines.headline(client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,3,-1,25)
+  points = await routines.headline(client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,-1,25)
   for pt in points:
     feat.addPoint(*pt)
 
@@ -432,21 +431,23 @@ async def probe_home_offset_y(client, y_pos_v2, a_pos_v2, b_pos_v2):
   await client.GoTo("%s,Tool.A(90),Tool.B(120)" % ((meas_pos + float3(0,-5,0)).ToXYZString())).complete()
   ptMeas = await client.PtMeas("%s,IJK(0,-1,0)" % (meas_pos.ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.append(pt)
+  feat.addPoint(*pt)
   
   meas_pos = orig + float3((FIXTURE_SIDE/2 - 15),-(FIXTURE_SIDE/2),0)
   await client.GoTo("%s,Tool.A(90),Tool.B(120)" % ((meas_pos + float3(0,-5,0)).ToXYZString())).complete()
   ptMeas = await client.PtMeas("%s,IJK(0,-1,0)" % (meas_pos.ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.append(pt)
+  feat.addPoint(*pt)
   
   await client.GoTo("X(%s)" % X_CLEARANCE_PART_CSY).complete()
 
-  return Feature(pts)
+  return feat
 
 async def probe_top_plane(client, y_pos_v2):
   orig = APPROX_FIXTURE_TOP_PLANE_CENTER + float3(0,-y_pos_v2,0)
   await client.GoTo("Tool.Alignment(0,1,0)").send()
+  await client.SetProp("Tool.PtMeasPar.Approach(10)").send()
+  await client.SetProp("Tool.PtMeasPar.Search(12)").send()
   await client.SetProp("Tool.PtMeasPar.HeadTouch(0)").send()
   await client.GoTo((orig + float3(0,100,0)).ToXYZString()).ack()
   await client.GoTo((orig + float3(0,10,0)).ToXYZString()).ack()
@@ -457,11 +458,11 @@ async def probe_top_plane(client, y_pos_v2):
   pt = float3.FromXYZString(ptMeas.data_list[0])
   fixture_top_face.addPoint(*pt)
 
-  ptMeas = await client.PtMeas("%s,IJK(0,1,0)" % ((orig + float3(-5,0,-25)).ToXYZString())).data()
+  ptMeas = await client.PtMeas("%s,IJK(0,1,0)" % ((orig + float3(-5,0,-20)).ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   fixture_top_face.addPoint(*pt)
 
-  ptMeas = await client.PtMeas("%s,IJK(0,1,0)" % ((orig + float3(5,0,-25)).ToXYZString())).data()
+  ptMeas = await client.PtMeas("%s,IJK(0,1,0)" % ((orig + float3(15,0,-20)).ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   fixture_top_face.addPoint(*pt)
 
@@ -469,7 +470,7 @@ async def probe_top_plane(client, y_pos_v2):
   pt = float3.FromXYZString(ptMeas.data_list[0])
   fixture_top_face.addPoint(*pt)
   
-  ptMeas = await client.PtMeas("%s,IJK(0,1,0)" % ((orig + float3(-5,0,25)).ToXYZString())).data()
+  ptMeas = await client.PtMeas("%s,IJK(0,1,0)" % ((orig + float3(0,0,45)).ToXYZString())).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   fixture_top_face.addPoint(*pt)
 
@@ -556,7 +557,7 @@ async def probe_a_line(client, y_pos_v2, a_pos_v2):
 
   # rotate nominal touch point about x by a_pos_v2
   r = Rotation.from_euler('x', a_pos_v2, degrees=True)
-  vectors = r.apply([ vec_cor_to_orig_start, (0,-1,0), (0,0,1) ])
+  vectors = r.apply([ np.array(vec_cor_to_orig_start), np.array((0,-1,0)), np.array((0,0,1)) ])
   start_pos = float3(vectors[0]) + ORIGIN_A_START_PROBE_POS
   drive_vec = float3(vectors[1])
   face_norm = float3(vectors[2])
@@ -565,9 +566,9 @@ async def probe_a_line(client, y_pos_v2, a_pos_v2):
   a_line = Feature()
 
   await client.AlignTool("%s,%s,%s,0" % (-1,0,0)).ack()
-  await client.GoTo((start_pos + float3(-10, 0, 0)).ToXYZString()).ack()
+  await client.GoTo((start_pos + float3(-20, 0, 0) + (face_norm*5)).ToXYZString()).ack()
 
-  points = await routines.headline(client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,3,-1,10)
+  points = await routines.headline(client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,3,1,10)
   for pt in points:
     a_line.addPoint(*pt)
 
@@ -853,16 +854,16 @@ async def probe_fixture_horizontal(client, y_pos_v2):
   '''
   x_line = Feature()
 
-  await client.GoTo("Tool.Alignment(1,0,0)").complete()
+  await client.GoTo("Tool.Alignment(0,0,1)").complete()
 
   orig = APPROX_COR
-  start_pos = orig + float3(FIXTURE_SIDE/2-15,FIXTURE_SIDE/2,-5)
+  start_pos = orig + float3(FIXTURE_SIDE/2-15,FIXTURE_SIDE/2,-4)
   await client.GoTo((start_pos + float3(0, 25, 25)).ToXYZString()).complete()
 
   drive_vec = float3(-1,0,0)
   face_norm = float3(0,1,0)
 
-  points = await routines.headprobe_line_xz(client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,2,-1,1)
+  points = await routines.headline(client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,3,-1,25)
   for pt in points:
     x_line.addPoint(*pt)
 

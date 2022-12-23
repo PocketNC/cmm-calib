@@ -62,7 +62,9 @@ def calc_pos_a(a_line, x_dir, y_dir, z_dir, origin):
   logger.debug('line dir z %s' % (z,))
   
   # A0 sample starts along +Y axis, so get angle relative to [0, 1] where 2D coordinate is [ z, y ]
-  a_pos = angle_between_ccw_2d([0, 1], [z, y])
+  a_pos = -angle_between_ccw_2d([0, 1], [z, y])
+
+  logger.debug('a_pos %s', a_pos)
 
   return a_pos
 
@@ -100,7 +102,7 @@ def calc_ccw_angle_from_y(line, x_dir, y_dir, z_dir, origin):
   to calculate an angle.
   '''
 
-  line = line.reverse().projectOntoPlane((origin,z_dir)).line()
+  line = line.reverse().projectToPlane((origin,z_dir)).line()
   line_dir = line[1]
 
   x = np.dot(line_dir, x_dir)
@@ -118,7 +120,7 @@ def calc_ccw_angle_from_x(line, x_dir, y_dir, z_dir, origin):
   to calculate an angle.
   '''
 
-  line = line.reverse().projectOntoPlane((origin,z_dir)).line()
+  line = line.reverse().projectToPlane((origin,z_dir)).line()
   line_dir = line[1]
 
   x = np.dot(line_dir, x_dir)
@@ -175,3 +177,28 @@ def calc_home_offset_y(self, points, x_dir, y_dir, z_dir, origin, y0, y_home_off
   y_avg = np.array(y_vals).mean()
   y_offset_err = y_avg - y0
   return y_home_offset + y_offset_err
+
+def calc_sphere_diameter_deviation(sphere_feature, expected_dia):
+  """Returns the absolute value of the difference in diameter between expected_dia and the best fit sphere diameter of sphere_feature."""
+  (rad,pos) = sphere_feature.sphere()
+  return abs(rad*2-expected_dia)
+
+def calc_max_sphere_diameter_deviation(sphere_features, expected_dia):
+  """Returns the max difference in diameter between expected_dia and the best fit sphere diameters of each of the sphere_features."""
+  max_dev = 0
+  for f in sphere_features:
+    dev = calc_sphere_diameter_deviation(f, expected_dia)
+    if dev > max_dev:
+      max_dev = dev
+  return max_dev
+
+def calc_parallelism(dir1,dir2,run):
+  """
+  Calculates the pallelism over a distance of run of two direction vectors.
+  """
+  dir1 = np.array(dir1)
+  dir2 = np.array(dir2)
+  dot = np.dot(dir1,dir2)
+
+  return np.linalg.norm(run*dir1-run*dot*dir2)
+
