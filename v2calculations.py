@@ -86,11 +86,16 @@ def calc_pos_b(b_line, x_dir, y_dir, z_dir, origin):
   x = np.dot(b_line_dir, x_dir)
 
   # B0 sample starts along +X axis, so get angle relative to [0, 1] where 2D coordinate is [ z, x ]
-  b_pos = angle_between_ccw_2d([0, 1], [z, x])
+  b_pos = angle_between_ccw_2d([0, 1],[z, x])
+
+  #offset by 45 degrees because thats the fixture face angle at B0
+  b_pos = b_pos + 45
 
   # put b angle in 0 to 360 range rather than -180 to 180
   if b_pos < 0:
     b_pos += 360
+  
+  logger.debug('b_pos %s', b_pos)
 
   return b_pos
     
@@ -120,13 +125,14 @@ def calc_ccw_angle_from_x(line, x_dir, y_dir, z_dir, origin):
   to calculate an angle.
   '''
 
-  line = line.reverse().projectToPlane((origin,z_dir)).line()
+  line = line.projectToPlane((origin,z_dir)).line()
   line_dir = line[1]
 
   x = np.dot(line_dir, x_dir)
   y = np.dot(line_dir, y_dir)
 
   angle = angle_between_ccw_2d([1, 0], [x, y])
+  logger.debug('calc_ccw_angle_from_x %s', angle)
 
   return angle
 
@@ -155,6 +161,15 @@ def calc_max_dist_from_pos(pos,feat):
     if dist > max_dist:
       max_dist = dist
   return max_dist
+
+def calc_max_diff(numbers):
+  max_diff = 0
+  for n in numbers:
+    for m in numbers:
+      diff = abs(n - m)
+      if diff > max_diff:
+        max_diff = diff
+  return max_diff
 
 def calc_home_offset_x(self, points, x_dir, y_dir, z_dir, origin, x0, x_home_offset):
   """

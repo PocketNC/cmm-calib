@@ -8,6 +8,8 @@ logger = logging.getLogger(__name__)
 
 BEST_FIT_SPHERE_ERROR = 0.0254
 LINEAR_HOMING_REPEATABILITY = 0.001 * 25.4 # 0.001 inches, 0.0254 mm
+B_HOMING_REPEATABILITY = 0.04 # degrees
+A_HOMING_REPEATABILITY = 0.08 # degrees
 
 class CalibException(Exception):
   pass
@@ -25,6 +27,28 @@ def verify_linear_homing_repeatability(features, axis):
     raise CalibException("%s repeatability failure, expected <= %s, found %s" % (axis, LINEAR_HOMING_REPEATABILITY, max_dist))
 
   return (max_dist, LINEAR_HOMING_REPEATABILITY)
+
+def verify_a_homing_repeatability(features, x_dir, y_dir, z_dir, origin):
+  positions = []
+  for a_line in features:
+    a_pos = v2calculations.calc_pos_a(a_line, x_dir, y_dir, z_dir, origin)
+    positions.append(a_pos)
+  max_diff = v2calculations.calc_max_diff(positions)
+  if max_diff > A_HOMING_REPEATABILITY:
+    raise CalibException("A repeatability failure, expected <= %s, found %s" % (A_HOMING_REPEATABILITY, max_diff))
+
+  return (max_diff, A_HOMING_REPEATABILITY)
+
+def verify_b_homing_repeatability(features, x_dir, y_dir, z_dir, origin):
+  positions = []
+  for b_line in features:
+    b_pos = v2calculations.calc_pos_b(b_line, x_dir, y_dir, z_dir, origin)
+    positions.append(b_pos)
+  max_diff = v2calculations.calc_max_diff(positions)
+  if max_diff > B_HOMING_REPEATABILITY:
+    raise CalibException("B repeatability failure, expected <= %s, found %s" % (B_HOMING_REPEATABILITY, max_diff))
+
+  return (max_diff, B_HOMING_REPEATABILITY)
 
 def verify_linear_axis_direction(dir1,dir2):
   """
