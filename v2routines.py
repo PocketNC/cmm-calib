@@ -542,7 +542,7 @@ async def probe_home_offset_x(client, y_pos_v2, a_pos_v2, b_pos_v2):
 
   return feat
 
-async def initial_probe_a(client, y_pos_v2, a_pos_v2):
+async def prep_probe_a_home(client, y_pos_v2, a_pos_v2):
   orig = ORIGIN_A_START_PROBE_POS
   a_cor = orig + float3(0,-y_pos_v2,0)
 
@@ -552,6 +552,11 @@ async def initial_probe_a(client, y_pos_v2, a_pos_v2):
   await client.GoTo("Tool.Alignment(-1,0,0)").complete()
   await client.GoTo((a_cor + float3(-200, 0, 0)).ToXYZString()).complete()
 
+async def prep_probe_a(client, y_pos_v2, a_pos_v2):
+  await client.SetProp("Tool.PtMeasPar.HeadTouch(1)").complete()
+  await client.SetProp("Tool.PtMeasPar.Search(3)").ack()
+  await client.SetProp("Tool.PtMeasPar.Approach(2)").ack()
+  
 async def probe_a_line(client, y_pos_v2, a_pos_v2):
   '''
   Probe points along the shark fin on the calibration fixture. Returns a feature with those points.
@@ -594,99 +599,113 @@ async def probe_fixture_ball_side(client, fixture_home, y_pos_v2, a_pos_v2):
   contact_radius = (FIXTURE_BALL_DIA+PROBE_DIA)/2
   clearance_radius = contact_radius + 2
   cor = APPROX_COR + float3(0,-y_pos_v2,0)
-  cor_to_ball = fixture_home - APPROX_COR
+  cor_to_ball = fixture_home - cor
 
   if a_pos_v2 < 0:
     vec_tool_align = np.array((0,.2,-1))
   else:
     vec_tool_align = np.array((0,0,-1))
   r = Rotation.from_euler('x', a_pos_v2, degrees=True)
-  vectors = r.apply([ cor_to_ball, vec_tool_align, np.array((contact_radius, 0,0)), np.array((clearance_radius, 0,0)), np.array((0,contact_radius,0)), np.array((0,clearance_radius,0)) ])
+  vectors = r.apply([ cor_to_ball, vec_tool_align, np.array((1,0,0)), np.array((0,1,0)), np.array((0,0,1)) ])
   vec_cor_to_ball = float3(vectors[0])
   ball_pos = vec_cor_to_ball + cor
   vec_tool_align = float3(vectors[1]).normalize()
-  tool_orig = ball_pos + vec_tool_align * TOOL_3_LENGTH
-  x_contact = float3(vectors[2])
-  x_clearance = float3(vectors[3])
-  y_contact = float3(vectors[4])
-  y_clearance = float3(vectors[5])
-  logger.debug("ball_pos %s, vec_tool_align %s, x_contact %s, x_clearance %s, y_cont %s, y_clear %s", ball_pos, vec_tool_align, x_contact, x_clearance, y_contact, y_clearance)
+  
+  x_dir = float3(vectors[2])
+  y_dir = float3(vectors[3])
+  z_dir = float3(vectors[4])
+  logger.debug("ball_pos %s, vec_tool_align %s, x_dir %s, y_dir %s, z_dir %s", ball_pos, vec_tool_align, x_dir, y_dir,z_dir)
   
   await client.AlignTool("%s,%s,%s,0" % (vec_tool_align[0],vec_tool_align[1],vec_tool_align[2])).complete()
   approach_pos = 2*vec_cor_to_ball + cor
   await client.GoTo("%s" % (approach_pos.ToXYZString())).complete()
 
+  tool_orig_to_ball = math.sqrt(math.pow(TOOL_3_LENGTH,2) - math.pow(clearance_radius,2))
+  tool_orig = ball_pos + vec_tool_align * tool_orig_to_ball
+
   #at A0 this probe is from +X pos, in -X dir
-  start_pos = ball_pos + x_clearance
+  start_pos = ball_pos + x_dir*clearance_radius
   tool_alignment = np.array((tool_orig - start_pos).normalize())
-  await client.AlignTool("%s,%s,%s,0" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])).ack()
-  await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
-  contact_pos = ball_pos + x_contact
+  tool_align_string = "%s,%s,%s" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])
+  # await client.AlignTool("%s,%s,%s,0" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])).ack()
+  # await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
+  contact_pos = ball_pos + x_dir*contact_radius
   approach_vec = start_pos - contact_pos
-  ptMeas = await client.PtMeas("%s,%s" % (contact_pos.ToXYZString(),approach_vec.ToIJKString())).data()
+  ptMeas = await client.PtMeas("%s,%s,Tool.Alignment(%s)" % (contact_pos.ToXYZString(),approach_vec.ToIJKString(),tool_align_string)).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   pts.addPoint(*pt)
 
   #at A0 this probe is from +Y pos, in -Y dir
-  start_pos = ball_pos + y_clearance
+  start_pos = ball_pos + y_dir*clearance_radius
   tool_alignment = np.array((tool_orig - start_pos).normalize())
-  await client.AlignTool("%s,%s,%s,0" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])).ack()
-  await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
-  contact_pos = ball_pos + y_contact
+  tool_align_string = "%s,%s,%s" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])
+  # await client.AlignTool("%s,%s,%s,0" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])).ack()
+  # await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
+  contact_pos = ball_pos + y_dir*contact_radius
   approach_vec = start_pos - contact_pos
-  ptMeas = await client.PtMeas("%s,%s" % (contact_pos.ToXYZString(),approach_vec.ToIJKString())).data()
+  ptMeas = await client.PtMeas("%s,%s,Tool.Alignment(%s)" % (contact_pos.ToXYZString(),approach_vec.ToIJKString(),tool_align_string)).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   pts.addPoint(*pt)
 
   #at A0 this probe is from -X pos, in +X dir
-  start_pos = ball_pos - x_clearance
+  start_pos = ball_pos - x_dir*clearance_radius
   tool_alignment = np.array((tool_orig - start_pos).normalize())
-  await client.AlignTool("%s,%s,%s,0" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])).ack()
-  await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
-  contact_pos = ball_pos - x_contact
+  tool_align_string = "%s,%s,%s" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])
+  # await client.AlignTool("%s,%s,%s,0" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])).ack()
+  # await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
+  contact_pos = ball_pos - x_dir*contact_radius
   approach_vec = start_pos - contact_pos
-  ptMeas = await client.PtMeas("%s,%s" % (contact_pos.ToXYZString(),approach_vec.ToIJKString())).data()
+  ptMeas = await client.PtMeas("%s,%s,Tool.Alignment(%s)" % (contact_pos.ToXYZString(),approach_vec.ToIJKString(),tool_align_string)).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   pts.addPoint(*pt)
 
-  #move 2mm in the direction of vec_tool_align and probe 3 more points
-  ball_pos = ball_pos + 2*vec_tool_align
-  tool_orig = ball_pos + vec_tool_align * TOOL_3_LENGTH
+  RISE = 2
+  #move RISE mm in z_dir and probe 3 more points
+  ball_pos = ball_pos - RISE*z_dir
+  #since we are no longer "on an equator" of the ball, reduce contact/clearance radius
+  contact_radius = math.cos(math.acos((contact_radius - RISE)/contact_radius))*contact_radius
+  clearance_radius = contact_radius + 2 
+  #also update tool_orig pos
+  tool_orig_to_ball = math.sqrt(math.pow(TOOL_3_LENGTH,2) - math.pow(clearance_radius,2))
+  tool_orig = ball_pos + vec_tool_align * tool_orig_to_ball
 
   #at A0 this probe is from -X pos, in +X dir
-  start_pos = ball_pos - x_clearance
+  start_pos = ball_pos - x_dir*clearance_radius
   tool_alignment = np.array((tool_orig - start_pos).normalize())
-  await client.AlignTool("%s,%s,%s,0" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])).ack()
-  await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
-  contact_pos = ball_pos - x_contact
+  tool_align_string = "%s,%s,%s" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])
+  # await client.AlignTool("%s,%s,%s,0" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])).ack()
+  # await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
+  contact_pos = ball_pos - x_dir*contact_radius
   approach_vec = start_pos - contact_pos
-  ptMeas = await client.PtMeas("%s,%s" % (contact_pos.ToXYZString(),approach_vec.ToIJKString())).data()
+  ptMeas = await client.PtMeas("%s,%s,Tool.Alignment(%s)" % (contact_pos.ToXYZString(),approach_vec.ToIJKString(),tool_align_string)).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   pts.addPoint(*pt)
 
   #at A0 this probe is from +Y pos, in -Y dir
-  start_pos = ball_pos + y_clearance
+  start_pos = ball_pos + y_dir*clearance_radius
   tool_alignment = np.array((tool_orig - start_pos).normalize())
-  await client.AlignTool("%s,%s,%s,0" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])).ack()
-  await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
-  contact_pos = ball_pos + y_contact
+  tool_align_string = "%s,%s,%s" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])
+  # await client.AlignTool("%s,%s,%s,0" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])).ack()
+  # await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
+  contact_pos = ball_pos + y_dir*contact_radius
   approach_vec = start_pos - contact_pos
-  ptMeas = await client.PtMeas("%s,%s" % (contact_pos.ToXYZString(),approach_vec.ToIJKString())).data()
+  ptMeas = await client.PtMeas("%s,%s,Tool.Alignment(%s)" % (contact_pos.ToXYZString(),approach_vec.ToIJKString(),tool_align_string)).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   pts.addPoint(*pt)
 
   #at A0 this probe is from +X pos, in -X dir
-  start_pos = ball_pos + x_clearance
+  start_pos = ball_pos + x_dir*clearance_radius
   tool_alignment = np.array((tool_orig - start_pos).normalize())
-  await client.AlignTool("%s,%s,%s,0" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])).ack()
-  await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
-  contact_pos = ball_pos + x_contact
+  tool_align_string = "%s,%s,%s" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])
+  # await client.AlignTool("%s,%s,%s,0" % (tool_alignment[0],tool_alignment[1],tool_alignment[2])).ack()
+  # await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
+  contact_pos = ball_pos + x_dir*contact_radius
   approach_vec = start_pos - contact_pos
-  ptMeas = await client.PtMeas("%s,%s" % (contact_pos.ToXYZString(),approach_vec.ToIJKString())).data()
+  ptMeas = await client.PtMeas("%s,%s,Tool.Alignment(%s)" % (contact_pos.ToXYZString(),approach_vec.ToIJKString(),tool_align_string)).data()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   pts.addPoint(*pt)
 
-  retreat_pos = ball_pos + y_clearance*10
+  retreat_pos = ball_pos + vec_tool_align*50
   await client.GoTo("%s" % (retreat_pos.ToXYZString())).complete()
   return pts
 
