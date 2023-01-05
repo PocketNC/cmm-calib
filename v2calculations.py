@@ -193,6 +193,12 @@ def calc_home_offset_y(self, points, x_dir, y_dir, z_dir, origin, y0, y_home_off
   y_offset_err = y_avg - y0
   return y_home_offset + y_offset_err
 
+def calc_b_table_offset(self, tool_probe_pos, plane_a90, x_dir, y_dir, z_dir, origin):
+  pass
+
+def calc_tool_probe_offset(self, tool_probe_pos, plane_a90, x_dir, y_dir, z_dir, origin):
+  pass
+
 def calc_sphere_diameter_deviation(sphere_feature, expected_dia):
   """Returns the absolute value of the difference in diameter between expected_dia and the best fit sphere diameter of sphere_feature."""
   (rad,pos) = sphere_feature.sphere()

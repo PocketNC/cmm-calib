@@ -7,6 +7,12 @@ def getFixtureBallPos(state):
 def getZeroSpindlePos(state):
   return state.getStage(Stages.PROBE_SPINDLE_POS)["zero_spindle_pos"]
 
+def getToolProbePos(state):
+  return state.getStage(Stages.TOOL_PROBE_OFFSET)["tool_probe_pos"]
+
+def getPlaneA90(state):
+  return state.getStage(Stages.TOOL_PROBE_OFFSET)["plane_a90"]
+
 def getFeaturesX(state):  
   return state.getStage(Stages.CHARACTERIZE_X)['features']
 
