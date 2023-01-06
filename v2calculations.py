@@ -193,14 +193,19 @@ def calc_home_offset_y(self, points, x_dir, y_dir, z_dir, origin, y0, y_home_off
   y_offset_err = y_avg - y0
   return y_home_offset + y_offset_err
 
-def calc_b_table_offset(self, tool_probe_pos, plane_a90, x_dir, y_dir, z_dir, origin):
-  pass
+def calc_b_table_offset(self, pos_a_cor, pos_top_plane, y_dir, probe_dia):
+  vec_top_plane_to_a_cor = pos_a_cor - pos_top_plane
+  dist_top_plane_to_a_cor = np.dot(vec_top_plane_to_a_cor, y_dir) + PROBE_DIA/2
+  logger.debug('dist_top_plane_to_a_cor %s' % dist_top_plane_to_a_cor)
+  b_table_offset = (dist_top_plane_to_a_cor + FIXTURE_HEIGHT) / 25.4
+  #TODO return b_table_offset
+
 
 def calc_tool_probe_offset(self, tool_probe_pos, plane_a90, x_dir, y_dir, z_dir, origin):
-  pass
+  pass #TODO
 
 def calc_sphere_diameter_deviation(sphere_feature, expected_dia):
-  """Returns the absolute value of the difference in diameter between expected_dia and the best fit sphere diameter of sphere_feature."""
+  """Returns the absolute value   of the difference in diameter between expected_dia and the best fit sphere diameter of sphere_feature."""
   (rad,pos) = sphere_feature.sphere()
   return abs(rad*2-expected_dia)
 
