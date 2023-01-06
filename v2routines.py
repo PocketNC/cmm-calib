@@ -337,7 +337,8 @@ async def probe_fixture_ball_top(client, fixture_home, y_pos_v2):
   logger.debug("fixture_home %s %s", fixture_home, type(fixture_home))
   orig = float3(fixture_home) + float3(0,-y_pos_v2, 0)
   tool_orig = orig + TOOL_3_LENGTH*float3(0,1,0)
-  contact_radius = (FIXTURE_BALL_DIA+PROBE_DIA)/2
+  FULL_CONTACT_RADIUS = (FIXTURE_BALL_DIA+PROBE_DIA)/2
+  contact_radius = FULL_CONTACT_RADIUS
   clearance_radius = contact_radius + 2
   a_angle_probe_contact = math.atan2(contact_radius,TOOL_3_LENGTH)*180/math.pi
 
@@ -383,6 +384,10 @@ async def probe_fixture_ball_top(client, fixture_home, y_pos_v2):
   #rise 2mm and probe another 3 points
   orig = orig + float3(0,2,0)
   tool_orig = tool_orig + float3(0,2,0)
+  RISE = 2
+  contact_radius = math.sqrt(FULL_CONTACT_RADIUS*FULL_CONTACT_RADIUS-RISE*RISE)
+  clearance_radius = contact_radius + 2
+
   start_pos = orig + float3(-clearance_radius,0,0) 
   tool_alignment = np.array((tool_orig - start_pos).normalize())
   # probe in +X dir
@@ -544,7 +549,7 @@ async def probe_home_offset_x(client, y_pos_v2, a_pos_v2, b_pos_v2):
 
   return feat
 
-async def prep_probe_a_line(client, y_pos_v2, a_pos_v2):
+async def prep_probe_fixture_fin(client, y_pos_v2, a_pos_v2):
   orig = ORIGIN_A_START_PROBE_POS
   a_cor = orig + float3(0,-y_pos_v2,0)
 
