@@ -161,13 +161,32 @@ class Stages(Enum):
   """
 
   PROBE_TOP_PLANE = auto()
+  """
+  Probes the top plane of the calibration fixture.
+
+  Stores the following keys in the stage:
+
+      `top_plane` - Feature that represents the plane of the top face of the calibration fixture.
+      `y` - The y position the V2 was commanded to when probing the top face.
+
+  """
+
   PROBE_HOME_OFFSETS = auto()
+  """
+  Gathers measurements for calculating the X and Y home offsets. The V2 is commanded to A90.
+  The calibration fixture's fin is probed to ensure the fixture is as aligned as possible with
+  the Z axis. B is also aligned to ensure the sides of the calibration fixture are perpendicular
+  to Y. Two points on each side of the fixture are probed, then B is rotated 180 degrees and the
+  two points are probed again. The average of all four points is used to determine an offset. The
+  same procedure happens for X and then Y.
+  """
 
   HOMING_A = auto()
   HOMING_B = auto()
-  SETUP_CNC_CSY = auto()
+
   CHARACTERIZE_A = auto()
   CHARACTERIZE_B = auto()
+
   CALC_CALIB = auto()
   WRITE_CALIB = auto()
   '''verification stages'''
