@@ -1,5 +1,7 @@
 from calibstate import CalibState, Stages
 import v2calculations
+from metrology import Feature, angle_between_ccw_2d, intersectLines, angle_between
+
 
 def getFixtureBallPos(state):
   return state.getStage(Stages.PROBE_FIXTURE_BALL_POS)["fixture_ball_pos"]
@@ -21,6 +23,12 @@ def getFeaturesY(state):
 
 def getFeaturesZ(state):  
   return state.getStage(Stages.CHARACTERIZE_Z)['features']
+
+def getFeaturesA(state):  
+  return state.getStage(Stages.CHARACTERIZE_A)['features']
+
+def getFeaturesB(state):  
+  return state.getStage(Stages.CHARACTERIZE_B)['features']
 
 def getXDirection(state):
   feats = getFeaturesX(state)
@@ -53,3 +61,27 @@ def getAxisDirections(state):
   y = getYDirection(state)
   z = getZDirection(state)
   return (x,y,z)
+
+def getAZeroPt(state):
+  feat = state.getStage(Stages.CHARACTERIZE_A)['zero']
+  (rad, pt) = feat.sphere()
+  return pt
+
+def getAPositions(state):
+  stage = state.getStage(Stages.CHARACTERIZE_A)
+  zero_pt = getAZeroPt(state)
+  feats = getFeaturesA(stage)
+  pts = v2calculations.calc_sphere_centers(feats)
+  (rad, cor, norm) = Feature(pts).circle()
+  zero_line = zero_pt - cor
+  positions = []
+  for pt in pts:
+    a_line = pt - cor
+    a_pos = angle_between_ccw_2d(zero_line, a_line)
+    positions.append(a_pos)
+
+def getAErrors(state):
+  positions = getAPositions(state)
+  nominal_positions = state.getStage(Stages.CHARACTERIZE_A)['positions']
+  #TODO
+
