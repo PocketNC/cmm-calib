@@ -349,7 +349,7 @@ async def probe_fixture_ball_top(client, fixture_home, y_pos_v2):
 
   await client.SetProp("Tool.PtMeasPar.HeadTouch(1)").complete()
   await client.SetProp("Tool.PtMeasPar.Approach(2)").send()
-  await client.SetProp("Tool.PtMeasPar.Search(3)").complete()
+  await client.SetProp("Tool.PtMeasPar.Search(4)").complete()
 
   #place tip pos +X from target
   start_pos = orig + float3(clearance_radius,0,0) 

@@ -150,6 +150,7 @@ class Stages(Enum):
   when the probing occurred (these should be Y0).
   """
 
+  CHARACTERIZE_Y_REVERSE = auto()
   CHARACTERIZE_Y = auto()
   """
   Probes a series of fixture ball positions along the full length of travel of the Y-axis.
