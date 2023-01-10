@@ -95,6 +95,7 @@ class Stages(Enum):
   when the probing occurred (these should be X0, Z0).
   """
 
+  CHARACTERIZE_X_REVERSE = auto()
   CHARACTERIZE_X = auto()
   """
   Probes a series of spindle positions along the full length of travel of the X-axis.
@@ -116,6 +117,7 @@ class Stages(Enum):
   when the probing occurred (these should be X0, Z0).
   """
 
+  CHARACTERIZE_Z_REVERSE = auto()
   CHARACTERIZE_Z = auto()
   """
   Probes a series of spindle positions along the full length of travel of the Z-axis.

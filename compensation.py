@@ -220,6 +220,50 @@ def doGreedyACompensationCalculation(allPts, errorThreshold):
 
   return aCompensation
 
+def doGreedyCompensationIncrementally(allPts, fromError, errorIncr):
+  errorThreshold = fromError
+  compTable = doGreedyCompensationCalculation(allPts, errorThreshold)
+  error = calculateMaxError(compTable, allPts)
+
+  while error[1] > errorThreshold:
+    errorThreshold += errorIncr
+    compTable = doGreedyCompensationCalculation(allPts, errorThreshold)
+    error = calculateMaxError(compTable, allPts)
+
+  return (compTable, error)
+
+def doGreedyCompensationCalculation(allPts, errorThreshold):
+  numPts = len(allPts)
+  endPoint = (0,0)
+  compTable = Lines()
+
+  maxError = calculateMaxError(compTable,allPts)
+  currentLine = None
+
+  startIndex = 0
+
+  while maxError[1] > errorThreshold:
+    for i in range(startIndex+2, numPts):
+      pts = allPts[startIndex:i+1]
+      line = bestFitLine(endPoint, pts)
+      error = calculateMaxError(line,pts)
+      if error[1] <= errorThreshold:
+        currentLine = line
+        currentIndex = i
+
+    if currentLine == None:
+      break
+
+    startIndex = currentIndex
+    endPoint = currentLine.sample(allPts[currentIndex][0])
+    compTable.insert(endPoint)
+
+    maxError = calculateMaxError(currentLine, allPts)
+
+    currentLine = None
+
+  return compTable
+
 def calculateBCompensation(allPts):
   print(1)
   (greedyCompensation, greedyError) = doGreedyBCompensationIncrementally(allPts, .01, .001)
