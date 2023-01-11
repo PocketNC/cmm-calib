@@ -241,6 +241,9 @@ async def go_to_clearance_y(client, y=250):
 async def go_to_clearance_z(client, z=-250):
   await client.GoTo("Z(%s)" % z).complete()
 
+async def align_tool(client, i, j, k):
+  await client.AlignTool("%s,%s,%s,0" % (i,j,k)).complete()
+
 async def probe_machine_pos(client):
   '''
   Routine for gathering point data about the back right corner of the L-bracket
