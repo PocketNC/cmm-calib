@@ -187,8 +187,16 @@ class Stages(Enum):
   HOMING_A = auto()
   HOMING_B = auto()
 
-  CHARACTERIZE_A = auto()
-  CHARACTERIZE_B = auto()
+  CHARACTERIZE_A_SPHERE_REVERSE = auto()
+  CHARACTERIZE_A_SPHERE = auto()
+  CHARACTERIZE_B_SPHERE_REVERSE = auto()
+  CHARACTERIZE_B_SPHERE = auto()
+
+  CHARACTERIZE_A_LINE_REVERSE = auto()
+  CHARACTERIZE_A_LINE = auto()
+  CHARACTERIZE_B_LINE_REVERSE = auto()
+  CHARACTERIZE_B_LINE = auto()
+  
 
   CALC_CALIB = auto()
   WRITE_CALIB = auto()
