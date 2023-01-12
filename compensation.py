@@ -243,7 +243,7 @@ def doGreedyCompensationCalculation(allPts, errorThreshold):
   startIndex = 0
 
   while maxError[1] > errorThreshold:
-    for i in range(startIndex+2, numPts):
+    for i in range(startIndex, numPts):
       pts = allPts[startIndex:i+1]
       line = bestFitLine(endPoint, pts)
       error = calculateMaxError(line,pts)
@@ -684,3 +684,89 @@ if __name__ == "__main__":
 #
 #  for p in aCompensation.pts:
 #    print "%s %s %s" % (p[0], p[1], p[1])
+
+def greedyBestFitLines(allPts, tolerance):
+  """Given a list of (x,y) points, generate a Lines object that approximates those points within the provided tolerance.
+  The strategy to achieve this is to calculate a best fit line for as many points of the list that stay within the tolerance.
+  Once we reach a point that the line goes out of tolerance, we create a new best fit line starting with the point that pushed
+  the last line over the tolerance. We do this until we've evaluated all points in the list. Then we sample the first best
+  fit line at the first x value of the original list as the first point. Then we add intersection points between the best
+  fit lines. Then we had the sample point of the last best fit line at the last x position in the original list.
+  """
+
+  lines = []
+
+  currentStartIndex = 0
+  numPts = len(allPts)
+  prevLine = None
+  for i in range(1, numPts):
+    pts = allPts[currentStartIndex:(i+1)]
+    line = bestFitLine(averagePoint(pts), pts)
+    error = calculateMaxError(line, pts)
+
+    if error[1] > tolerance:
+#      print(f"Line {len(lines)}")
+#      print(prevLine.sample(allPts[currentStartIndex][0]))
+#      print(prevLine.sample(allPts[i][0]))
+      lines.append(prevLine)
+      currentStartIndex = i
+
+    prevLine = line
+
+  lines.append(prevLine)
+
+  compTable = Lines()
+  compTable.insert(lines[0].sample(allPts[0][0]))
+
+  for i in range(len(lines)-1):
+    compTable.insert(lines[i].intersects(lines[i+1]))
+
+  compTable.insert(lines[-1].sample(allPts[-1][0]))
+
+  maxError = calculateMaxError(compTable, allPts)
+
+  if maxError[1] > tolerance:
+    return (None,None)
+
+  return (compTable,maxError)
+
+def extendTo(compTable, min, max):
+  newCompTable = Lines()
+
+  for pt in compTable.pts:
+    newCompTable.insert(pt)
+
+  startLine = Line.fromTwoPoints(compTable.pts[0], compTable.pts[1])
+  endLine = Line.fromTwoPoints(compTable.pts[-1], compTable.pts[-2])
+  newCompTable.insert(startLine.sample(min))
+  newCompTable.insert(endLine.sample(max))
+
+  return newCompTable
+
+def greedyBestFitLinesIncrementally(allPts, startTolerance, increment):
+  tolerance = startTolerance
+  compTable = None
+  maxError = None
+
+  while compTable is None:
+    (compTable,maxError) = greedyBestFitLines(allPts, tolerance)
+
+    if compTable is None:
+      tolerance += increment
+
+  return (compTable,maxError)
+
+def matchPoints(compTable1,compTable2):
+  """Ensure both compensation tables have sample points at the same X positions. This is used to combine
+  forward and reverse compensation tables so we can compensate for backlash."""
+  for pt in compTable1.pts:
+    try:
+      compTable2.insert(compTable2.sample(pt[0]))
+    except:
+      pass
+
+  for pt in compTable2.pts:
+    try:
+      compTable1.insert(compTable1.sample(pt[0]))
+    except:
+      pass
