@@ -185,17 +185,78 @@ class Stages(Enum):
   """
 
   HOMING_A = auto()
-  HOMING_B = auto()
+  """
+  Sets A HOME_OFFSET to 0, so the home position is the latch position
+  Then repeatedly commands the A axis to a random position, unhomes then homes the A axis, and then probes a line along the fixture fin
 
-  CHARACTERIZE_A = auto()
-  CHARACTERIZE_B = auto()
+  Stores a list of probed line features under the stage's key, `features`. 
+  Also stores a list of positions that represent where V2 was commanded when the probing occurred (these should be Y0A0).
+  """
+
+  HOMING_B = auto()
+  """
+  Sets B HOME_OFFSET to 0, so the home position is the latch position
+  Then repeatedly commands the B axis to a random position, 
+    unhomes then homes the B axis, 
+    and then probes a line along the fixture side
+
+  Stores a list of probed line features under the stage's key, `features`. 
+  Also stores a list of positions that represent where V2 was commanded when the probing occurred (these should be Y0B0).
+  """
+
+  CHARACTERIZE_A_SPHERE_REVERSE = auto()
+  CHARACTERIZE_A_SPHERE = auto()
+  """
+  Probes a series of fixture ball positions along the full arc of travel of the A-axis.
+  Stores the following keys in the stage:
+     `features` - List of sphere features probed as the A-axis rotates.
+     `positions` - The A position of the spindle where each of the `features` were probed.
+  """
+  
+  CHARACTERIZE_B_SPHERE_REVERSE = auto()
+  CHARACTERIZE_B_SPHERE = auto()
+  """
+  Probes a series of fixture ball positions along the full arc of travel of the B-axis.
+  Stores the following keys in the stage:
+     `features` - List of sphere features probed as the B-axis rotates.
+     `positions` - The B position of the spindle where each of the `features` were probed.
+  """
+
+  CHARACTERIZE_A_LINE_REVERSE = auto()
+  CHARACTERIZE_A_LINE = auto()
+  """
+  Probes a series of lines against the fixture fin along the full arc of travel of the A-axis.
+  Stores the following keys in the stage:
+     `features` - List of line features probed as the A-axis rotates.
+     `positions` - The A position of the spindle where each of the `features` were probed.
+  """
+  
+  CHARACTERIZE_B_LINE_REVERSE = auto()
+  CHARACTERIZE_B_LINE = auto()
+  """
+  Probes a series of lines against the fixture fin along the full arc of travel of the B-axis.
+  Stores the following keys in the stage:
+     `features` - List of line features probed as the B-axis rotates.
+     `positions` - The B position of the spindle where each of the `features` were probed.
+  """
+
+  TOOL_PROBE_OFFSET = auto()
+  """
+  Probes features needed to calculate PROBE_SENSOR_123_OFFSET
+  Performs a V2 tool probe, with a calibration sphere in the spindle. 
+  Then withdraws Z axes, lowers Y axis, and returns Z axis to position where contact occured
+  Then probes sphere in spindle.
+  Then withdraws Z, rotates A-axis to 90 degrees, and probes 3 points on the face to create a plane feature
+  Stores the following keys in the stage:
+     `tool_probe_pos` - Sphere feature, probed against the spindle sphere at the X and Z position where tool probe button contact occurred
+     `plane_a90` - Plane feature, probed against the fixture top plane at Y0A90
+  """
 
   CALC_CALIB = auto()
   WRITE_CALIB = auto()
   '''verification stages'''
   RESTART_CNC: auto()
   SETUP_VERIFY = auto()
-  TOOL_PROBE_OFFSET = auto()
   VERIFY_A_HOMING = auto()
   VERIFY_B_HOMING = auto()
   VERIFY_A = auto()

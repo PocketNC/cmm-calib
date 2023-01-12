@@ -68,7 +68,7 @@ async def probe_spindle_tip(client, spindle_home, ball_dia, x_pos_v2, z_pos_v2):
   # currPos = readPointData(getCurrPosCmd.data_list[0])
   
   approach_pos = orig + float3(0,50,0) 
-  await client.GoTo("%s" % (approach_pos.ToXYZString())).ack()
+  await client.GoTo("%s,Tool.Alignment(0,1,0)" % (approach_pos.ToXYZString())).ack()
   await client.SetProp("Tool.PtMeasPar.HeadTouch(1)").send()
   await client.SetProp("Tool.PtMeasPar.Search(6)").complete()
   
@@ -240,6 +240,9 @@ async def go_to_clearance_y(client, y=250):
 
 async def go_to_clearance_z(client, z=-250):
   await client.GoTo("Z(%s)" % z).complete()
+
+async def align_tool(client, i, j, k):
+  await client.AlignTool("%s,%s,%s,0" % (i,j,k)).complete()
 
 async def probe_machine_pos(client):
   '''
@@ -491,23 +494,23 @@ async def probe_top_plane(client, y_pos_v2):
 async def probe_fixture_plane_a90(client, y_pos_v2):
   orig = PROBE_FIXTURE_PLANE_A90_WAYPOINT
   await client.GoTo((orig + float3(0,100,100)).ToXYZString()).complete()
-  await client.GoTo("Tool.A(8),Tool.B(180)").complete()
+  await client.AlignTool("0.0,0.99,0.14,0").complete()
 
   await client.GoTo((orig + float3(0,0,5)).ToXYZString()).complete()
   await client.SetProp("Tool.PtMeasPar.HeadTouch(1)").complete()
 
   fixture_plane_a90 = Feature()
 
-  ptMeas = await client.PtMeas("%s,IJK(0,0,1)" % ((orig).ToXYZString())).complete()
+  ptMeas = await client.PtMeas("%s,IJK(0,0,1),Tool.Alignment(0.0,0.99,0.14)" % ((orig + float3(3,-3,0)).ToXYZString())).complete()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   fixture_plane_a90.addPoint(*pt)
 
-  ptMeas = await client.PtMeas("%s,IJK(0,0,1)" % ((orig + float3(-3,+3,0)).ToXYZString())).complete()
+  ptMeas = await client.PtMeas("%s,IJK(0,0,1),Tool.Alignment(0.0,0.99,0.14)" % ((orig + float3(-10,-20,0)).ToXYZString())).complete()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   fixture_plane_a90.addPoint(*pt)
 
-  await client.GoTo("%s,Tool.A(8),Tool.B(180)" % ((orig + float3(0,-3,5)).ToXYZString())).complete()
-  ptMeas = await client.PtMeas("%s,IJK(0,0,1)" % ((orig + float3(0,-3,0)).ToXYZString())).complete()
+
+  ptMeas = await client.PtMeas("%s,IJK(0,0,1),Tool.Alignment(0.0,0.99,0.14)" % ((orig + float3(-10,10,0)).ToXYZString())).complete()
   pt = float3.FromXYZString(ptMeas.data_list[0])
   fixture_plane_a90.addPoint(*pt)
 
@@ -579,6 +582,14 @@ async def prep_probe_fixture_ball(client, y_pos_v2, a_pos_v2):
   await client.SetProp("Tool.PtMeasPar.Approach(2)").ack()
   await client.SetProp("Tool.PtMeasPar.Retract(5)").ack()
   
+
+async def prep_probe_spindle_tip(client, y_pos_v2, a_pos_v2):
+  await client.SetProp("Tool.PtMeasPar.HeadTouch(1)").complete()
+  await client.SetProp("Tool.PtMeasPar.Approach(2)").send()
+  await client.SetProp("Tool.PtMeasPar.Search(12)").send()
+  await client.SetProp("Tool.PtMeasPar.Retract(10)").ack()
+  await client.AlignTool("0,1,0,0").ack()
+
 async def probe_a_line(client, y_pos_v2, a_pos_v2):
   '''
   Probe points along the shark fin on the calibration fixture. Returns a feature with those points.
