@@ -2,11 +2,11 @@ import os
 import json
 from calibstate import Stages
 
-
 POCKETNC_VAR_DIR = os.environ.get('POCKETNC_VAR_DIRECTORY')
 CALIB_DIR = os.path.join(POCKETNC_VAR_DIR, 'calib')
 if not os.path.exists(CALIB_DIR):
   os.makedirs(CALIB_DIR)
+STAGE_LISTS_FILE = os.path.join(CALIB_DIR, 'stage_lists.json')
 
 basic_calib_order = [
   Stages.ERASE_COMPENSATION,
@@ -29,9 +29,6 @@ basic_calib_order = [
   Stages.CHARACTERIZE_B_SPHERE,
   Stages.TOOL_PROBE_OFFSET,
 ]
-
-with open(os.path.join(CALIB_DIR, 'basic_order'), 'w') as f:
-  f.write(json.dumps(basic_calib_order))
 
 advanced_calib_order = [
   Stages.ERASE_COMPENSATION,
@@ -61,5 +58,8 @@ advanced_calib_order = [
   Stages.TOOL_PROBE_OFFSET,
 ]
 
-with open(os.path.join(CALIB_DIR, 'advanced_order'), 'w') as f:
-  f.write(json.dumps(advanced_calib_order))
+with open(STAGE_LISTS_FILE, 'w') as f:
+  stage_orders = {}
+  stage_orders['basic'] = basic_calib_order
+  stage_orders['advanced'] = advanced_calib_order
+  f.write(json.dumps(stage_orders, default=lambda x: x.name))
