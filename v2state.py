@@ -1,7 +1,7 @@
 from calibstate import CalibState, Stages
 import v2calculations
-from metrology import Feature, angle_between_ccw_2d, intersectLines, angle_between
-
+from metrology import Feature, angle_between_ccw_2d, intersectLines, angle_between, projectPointToPlane, projectDirectionToPlane
+import numpy as np
 
 def getFixtureBallPos(state):
   return state.getStage(Stages.PROBE_FIXTURE_BALL_POS)["fixture_ball_pos"]
@@ -85,3 +85,266 @@ def getAErrors(state):
   nominal_positions = state.getStage(Stages.CHARACTERIZE_A)['positions']
   #TODO
 
+def getAErrorSphere(state):
+  (x_dir,y_dir,z_dir) = getAxisDirections(state)
+  a_stage = state.getStage(Stages.CHARACTERIZE_A_SPHERE)
+  zero_a_pos = a_stage["zero_a_pos"]
+  features = a_stage["features"]
+  positions = a_stage["positions"]
+
+  centers = v2calculations.calc_sphere_centers(features)
+
+  circle = centers.circle()
+  cor_pt = circle[1]
+  zero_pt = a_stage["zero"].sphere()[1]
+
+  axis_of_rotation = circle[2]
+  if np.dot(x_dir,axis_of_rotation) < 0:
+    axis_of_rotation *= -1
+
+  # We're defining the zero point that we measured to be A0.
+  # Each point needs to be projected to the plane perpendicular
+  # to the axis of rotation.
+  plane = (cor_pt,axis_of_rotation)
+  zero_pt_proj = projectPointToPlane(zero_pt, plane)
+
+  zero_vec = zero_pt_proj-cor_pt
+  unit_zero_vec = zero_vec/np.linalg.norm(zero_vec)
+
+  # We need to convert all out points into a 2D space for calculating a ccw rotation,
+  # so we're going to define an x_vec and y_vec that define that 2D space.
+
+  y_vec = np.cross(axis_of_rotation,unit_zero_vec)
+  x_vec = unit_zero_vec
+
+  a_err = []
+  for (feature,pos) in zip(features,positions):
+    pt = feature.sphere()[1]
+    pt_proj = projectPointToPlane(pt, plane)
+    vec = pt_proj-cor_pt
+    r = np.linalg.norm(vec)
+    x = np.dot(x_vec, vec)
+    y = np.dot(y_vec, vec)
+
+    angle = angle_between_ccw_2d([1,0], [x,y])
+    commanded_angle = pos["a"]-zero_a_pos
+    print(f"{commanded_angle}\t{r-circle[0]}")
+    error = commanded_angle-angle
+
+    a_err.append((commanded_angle, error))
+
+  return a_err
+
+def getAErrorLine(state):
+  (x_dir,y_dir,z_dir) = getAxisDirections(state)
+  a_stage = state.getStage(Stages.CHARACTERIZE_A_SPHERE)
+  features = a_stage["features"]
+  positions = a_stage["positions"]
+
+  centers = v2calculations.calc_sphere_centers(features)
+
+  circle = centers.circle()
+  cor_pt = circle[1]
+  zero_pt = a_stage["zero"].sphere()[1]
+
+  axis_of_rotation = circle[2]
+  if np.dot(x_dir,axis_of_rotation) < 0:
+    axis_of_rotation *= -1
+
+  # We're defining the zero point that we measured to be A0.
+  # Each point needs to be projected to the plane perpendicular
+  # to the axis of rotation.
+  plane = (cor_pt,axis_of_rotation)
+
+  a_line_stage = state.getStage(Stages.CHARACTERIZE_A_LINE)
+  a_line_features = a_line_stage["features"]
+  a_line_positions = a_line_stage["positions"]
+  zero_a_pos = a_line_stage["zero_a_pos"]
+  zero_line = a_line_stage["zero"].projectToPlane(plane)
+  unit_zero_vec = zero_line.line()[1]
+
+  # We need to convert all out points into a 2D space for calculating a ccw rotation,
+  # so we're going to define an x_vec and y_vec that define that 2D space.
+
+  y_vec = -unit_zero_vec
+  x_vec = np.cross(axis_of_rotation, y_vec)
+
+  a_err = []
+  for (feature,pos) in zip(a_line_features,a_line_positions):
+    line = feature.projectToPlane(plane).line()
+    dir = -1*projectDirectionToPlane(line[1], plane)
+    vec = dir/np.linalg.norm(dir)
+    x = np.dot(x_vec, vec)
+    y = np.dot(y_vec, vec)
+
+    angle = -angle_between_ccw_2d([0,1], [x,y])
+    commanded_angle = pos["a"]-zero_a_pos
+    error = commanded_angle-angle
+
+    a_err.append((commanded_angle, error))
+
+  return a_err
+
+def getBErrorLine(state):
+  (x_dir,y_dir,z_dir) = getAxisDirections(state)
+  b_stage = state.getStage(Stages.CHARACTERIZE_B_SPHERE)
+  features = b_stage["features"]
+  positions = b_stage["positions"]
+
+  centers = v2calculations.calc_sphere_centers(features)
+
+  circle = centers.circle()
+  cor_pt = circle[1]
+  zero_pt = b_stage["zero"].sphere()[1]
+
+  axis_of_rotation = circle[2]
+  if np.dot(y_dir,axis_of_rotation) < 0:
+    axis_of_rotation *= -1
+
+  # Each point needs to be projected to the plane perpendicular
+  # to the axis of rotation.
+  plane = (cor_pt,axis_of_rotation)
+
+  b_line_stage = state.getStage(Stages.CHARACTERIZE_B_LINE)
+  b_line_features = b_line_stage["features"]
+  b_line_positions = b_line_stage["positions"]
+  zero_b_pos = b_line_stage["zero_b_pos"]
+  zero_line = b_line_stage["zero"].projectToPlane(plane)
+  unit_zero_vec = zero_line.line()[1]
+
+  # We need to convert all out points into a 2D space for calculating a ccw rotation,
+  # so we're going to define an x_vec and y_vec that define that 2D space.
+
+  x_vec = -unit_zero_vec
+  y_vec = np.cross(axis_of_rotation, x_vec)
+
+  b_err = []
+  for (feature,pos) in zip(b_line_features,b_line_positions):
+    line = feature.projectToPlane(plane).line()
+    dir = -1*projectDirectionToPlane(line[1], plane)
+    vec = dir/np.linalg.norm(dir)
+    x = np.dot(x_vec, vec)
+    y = np.dot(y_vec, vec)
+
+    angle = angle_between_ccw_2d([1,0], [x,y])
+    if angle < 0:
+      angle += 360
+    commanded_angle = pos["b"]-zero_b_pos
+    error = commanded_angle-angle
+    if error > 300:
+      error -= 360
+    elif error < -300:
+      error += 360
+
+
+    b_err.append((commanded_angle, error))
+
+  return b_err
+
+def getBErrorSphere(state):
+  (x_dir,y_dir,z_dir) = getAxisDirections(state)
+  b_stage = state.getStage(Stages.CHARACTERIZE_B_SPHERE)
+  zero_b_pos = b_stage["zero_b_pos"]
+  features = b_stage["features"]
+  positions = b_stage["positions"]
+
+  centers = v2calculations.calc_sphere_centers(features)
+
+  circle = centers.circle()
+  cor_pt = circle[1]
+  zero_pt = b_stage["zero"].sphere()[1]
+
+  axis_of_rotation = circle[2]
+  if np.dot(y_dir,axis_of_rotation) < 0:
+    axis_of_rotation *= -1
+
+  # We're defining the zero point that we measured to be B0.
+  # Each point needs to be projected to the plane perpendicular
+  # to the axis of rotation.
+  plane = (cor_pt,axis_of_rotation)
+  zero_pt_proj = projectPointToPlane(zero_pt, plane)
+
+  zero_vec = zero_pt_proj-cor_pt
+  unit_zero_vec = zero_vec/np.linalg.norm(zero_vec)
+
+  # We need to convert all out points into a 2D space for calculating a ccw rotation,
+  # so we're going to define an x_vec and y_vec that define that 2D space.
+
+  y_vec = np.cross(axis_of_rotation,unit_zero_vec)
+  x_vec = unit_zero_vec
+
+  b_err = []
+  for (feature,pos) in zip(features,positions):
+    pt = feature.sphere()[1]
+    pt_proj = projectPointToPlane(pt, plane)
+    vec = pt_proj-cor_pt
+    x = np.dot(x_vec, vec)
+    y = np.dot(y_vec, vec)
+
+    angle = angle_between_ccw_2d([1,0], [x,y])
+    if angle < 0:
+      angle += 360
+
+    commanded_angle = pos["b"]-zero_b_pos
+    error = commanded_angle-angle
+    if error > 300:
+      error -= 360
+    elif error < -300:
+      error += 360
+
+    r = np.linalg.norm(vec)
+    print(f"{commanded_angle}\t{r-circle[0]}")
+
+    b_err.append((commanded_angle, error))
+
+  print("Circle", circle)
+
+  return b_err
+
+def getYHomeOffsetFromASpheres(state):
+  a_stage = state.getStage(Stages.CHARACTERIZE_A_SPHERE)
+  features = a_stage["features"]
+  positions = a_stage["positions"]
+
+  centers = v2calculations.calc_sphere_centers(features)
+
+  circle = centers.circle()
+
+  z_stage = state.getStage(Stages.HOMING_Z)
+  z_features = z_stage["features"]
+  z_centers = v2calculations.calc_sphere_centers(z_features)
+  z0 = z_centers.average()
+
+  z_char_stage = state.getStage(Stages.CHARACTERIZE_Z)
+  z_3 = z_char_stage["features"][-1].sphere()[1]
+
+  y_stage = state.getStage(Stages.HOMING_Y)
+  y_features = y_stage["features"]
+  y_centers = v2calculations.calc_sphere_centers(y_features)
+  y0 = y_centers.average()
+
+  vec = circle[1]-z0
+
+  y_dir = getYDirection(state)
+
+  return np.dot(y_dir, vec)
+
+def getXHomeOffsetFromBSpheres(state):
+  b_stage = state.getStage(Stages.CHARACTERIZE_B_SPHERE)
+  features = b_stage["features"]
+  positions = b_stage["positions"]
+
+  centers = v2calculations.calc_sphere_centers(features)
+
+  circle = centers.circle()
+
+  x_stage = state.getStage(Stages.HOMING_X)
+  x_features = x_stage["features"]
+  x_centers = v2calculations.calc_sphere_centers(x_features)
+  x0 = x_centers.average()
+
+  vec = circle[1]-x0
+
+  x_dir = getXDirection(state)
+
+  return np.dot(x_dir, vec)

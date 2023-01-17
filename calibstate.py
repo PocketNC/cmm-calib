@@ -95,6 +95,17 @@ class Stages(Enum):
   when the probing occurred (these should be X0, Z0).
   """
 
+  CHARACTERIZE_XZ = auto()
+  """
+  Probe a grid of spindle positions along the full length of travel of both X and Z.
+  Stores the following keys in the stage:
+
+     `features` - List of sphere features probed.
+
+     `positions` - The X and Z position of the spindle where each of the `features` were probed.
+
+  """
+
   CHARACTERIZE_X_REVERSE = auto()
   CHARACTERIZE_X = auto()
   """
@@ -306,8 +317,10 @@ class CalibState:
 
   def saveStage(self, stage, data):
     if type(stage) == int:
+      logger.debug("Was passed in an int: %s", stage)
       stage = self.enumClass(stage)
     elif type(stage) == str:
+      logger.debug("Was passed in a string: %s", stage)
       stage = self.enumClass[stage]
 
     logger.debug("Saving stage %s", stage)

@@ -28,7 +28,7 @@ TOOL_3_LENGTH = 117.8
 
 B_LINE_LENGTH = 35
 
-APPROX_FIXTURE_BALL_HOME = float3(-133.18, -58.3, -111.0)
+APPROX_FIXTURE_BALL_HOME = float3(-133.97007924, -60.18797658, -111.17141382)
 
 APPROX_COR = float3(-134.9,  -69.32358094, -78.46214211)
 APPROX_COR_B = float3(-133.0, -60.1, -78.5)
@@ -330,98 +330,6 @@ async def probe_machine_pos(client):
 
   return (L_bracket_top_face, L_bracket_back_face, L_bracket_right_face)
 
-async def probe_fixture_ball_top(client, fixture_home, y_pos_v2):
-  """
-  Probe the position of the ball on the calibration fixture. This should first be called with fixture_home as APPROX_FIXTURE_BALL_HOME and
-  subsequent calls should use the more accurate position calculated from the best fit sphere of those points.
-  """
-  pts = Feature()
-
-  logger.debug("fixture_home %s %s", fixture_home, type(fixture_home))
-  orig = float3(fixture_home) + float3(0,-y_pos_v2, 0)
-  tool_orig = orig + TOOL_3_LENGTH*float3(0,1,0)
-  FULL_CONTACT_RADIUS = (FIXTURE_BALL_DIA+PROBE_DIA)/2
-  contact_radius = FULL_CONTACT_RADIUS
-  clearance_radius = contact_radius + 2
-  a_angle_probe_contact = math.atan2(contact_radius,TOOL_3_LENGTH)*180/math.pi
-
-  await client.GoTo("Tool.Alignment(0,1,0)").complete()
-  await client.GoTo((orig + float3(0,25,0)).ToXYZString()).complete()
-  getCurrPosCmd = await client.Get("X(),Y(),Z()").complete()
-  currPos = readPointData(getCurrPosCmd.data_list[0])
-
-  await client.SetProp("Tool.PtMeasPar.HeadTouch(1)").complete()
-  await client.SetProp("Tool.PtMeasPar.Approach(2)").send()
-  await client.SetProp("Tool.PtMeasPar.Search(4)").complete()
-
-  #place tip pos +X from target
-  start_pos = orig + float3(clearance_radius,0,0) 
-  tool_alignment = np.array((tool_orig - start_pos).normalize())
-  await client.AlignTool("%s,%s,%s,0" %(tool_alignment[0],tool_alignment[1],tool_alignment[2])).complete()
-  await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
-
-  # probe in -X dir
-  contact_pos = orig + float3(contact_radius,0,0) 
-  ptMeas = await client.PtMeas("%s,IJK(1,0,0)" % (contact_pos.ToXYZString())).data()
-  pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.addPoint(*pt)
-
-  # move to -Z pos, probe in +Z dir
-  start_pos = orig + float3(0,0,-clearance_radius)
-  tool_alignment = np.array((tool_orig - start_pos).normalize())
-  await client.AlignTool("%s,%s,%s,0" %(tool_alignment[0],tool_alignment[1],tool_alignment[2])).complete()
-  await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
-  ptMeas = await client.PtMeas("%s,IJK(0,0,-1)" % ((orig + float3(0,0,-contact_radius)).ToXYZString())).data()
-  pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.addPoint(*pt)
-
-  # move to -X pos, probe in +X dir
-  start_pos = orig + float3(-clearance_radius,0,0) 
-  tool_alignment = np.array((tool_orig - start_pos).normalize())
-  await client.AlignTool("%s,%s,%s,0" %(tool_alignment[0],tool_alignment[1],tool_alignment[2])).complete()
-  await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
-  ptMeas = await client.PtMeas("%s,IJK(-1,0,0)" % ((orig + float3(-contact_radius,0,0)).ToXYZString())).data()
-  pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.addPoint(*pt)
-
-  #rise 2mm and probe another 3 points
-  orig = orig + float3(0,2,0)
-  tool_orig = tool_orig + float3(0,2,0)
-  RISE = 2
-  contact_radius = math.sqrt(FULL_CONTACT_RADIUS*FULL_CONTACT_RADIUS-RISE*RISE)
-  clearance_radius = contact_radius + 2
-
-  start_pos = orig + float3(-clearance_radius,0,0) 
-  tool_alignment = np.array((tool_orig - start_pos).normalize())
-  # probe in +X dir
-  await client.AlignTool("%s,%s,%s,0" %(tool_alignment[0],tool_alignment[1],tool_alignment[2])).complete()
-  await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
-  ptMeas = await client.PtMeas("%s,IJK(-1,0,0)" % ((orig + float3(-contact_radius,0,0)).ToXYZString())).data()
-  pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.addPoint(*pt)
-
-  # move to -Z pos, probe in +Z dir
-  start_pos = orig + float3(0,0,-clearance_radius)
-  tool_alignment = np.array((tool_orig - start_pos).normalize())
-  await client.AlignTool("%s,%s,%s,0" %(tool_alignment[0],tool_alignment[1],tool_alignment[2])).complete()
-  await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
-  ptMeas = await client.PtMeas("%s,IJK(0,0,-1)" % ((orig + float3(0,0,-contact_radius)).ToXYZString())).data()
-  pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.addPoint(*pt)
-
-  # move to +X pos, probe in -X dir
-  start_pos = orig + float3(clearance_radius,0,0) 
-  tool_alignment = np.array((tool_orig - start_pos).normalize())
-  await client.AlignTool("%s,%s,%s,0" %(tool_alignment[0],tool_alignment[1],tool_alignment[2])).complete()
-  await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
-  ptMeas = await client.PtMeas("%s,IJK(1,0,0)" % ((orig + float3(contact_radius,0,0)).ToXYZString())).data()
-  pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.addPoint(*pt) 
-
-  await client.GoTo((orig + float3(0,100,0)).ToXYZString()).complete()
-
-  return pts
-
 async def probe_home_offset_y(client, y_pos_v2, a_pos_v2, b_pos_v2):
   '''
   Probe top and bottom faces of fixture 
@@ -576,21 +484,8 @@ async def prep_probe_b_line(client, y_pos_v2, b_pos_v2):
   start_pos = vec_bcor_to_startpos45 + pos_bcor 
   await client.GoTo((start_pos + float3(0, 25, 0)).ToXYZString()).complete()
 
-async def prep_probe_fixture_ball(client, y_pos_v2, a_pos_v2):
-  await client.SetProp("Tool.PtMeasPar.HeadTouch(1)").complete()
-  await client.SetProp("Tool.PtMeasPar.Search(3)").ack()
-  await client.SetProp("Tool.PtMeasPar.Approach(2)").ack()
-  await client.SetProp("Tool.PtMeasPar.Retract(5)").ack()
-  
 
-async def prep_probe_spindle_tip(client, y_pos_v2, a_pos_v2):
-  await client.SetProp("Tool.PtMeasPar.HeadTouch(1)").complete()
-  await client.SetProp("Tool.PtMeasPar.Approach(2)").send()
-  await client.SetProp("Tool.PtMeasPar.Search(12)").send()
-  await client.SetProp("Tool.PtMeasPar.Retract(10)").ack()
-  await client.AlignTool("0,1,0,0").ack()
-
-async def probe_a_line(client, y_pos_v2, a_pos_v2):
+async def probe_fixture_fin(client, y_pos_v2, a_pos_v2):
   '''
   Probe points along the shark fin on the calibration fixture. Returns a feature with those points.
   '''
@@ -611,15 +506,15 @@ async def probe_a_line(client, y_pos_v2, a_pos_v2):
   await client.GoTo((start_pos + float3(-20, 0, 0) + (face_norm*5)).ToXYZString()).ack()
 
   points = await routines.headline(client,start_pos,drive_vec,B_LINE_LENGTH,face_norm,3,1,10)
-  a_line = Feature()
+  line = Feature()
   for pt in points:
-    a_line.addPoint(*pt)
+    line.addPoint(*pt)
 
   end_pos = start_pos + drive_vec * B_LINE_LENGTH
   retract_pos = end_pos + face_norm * 20
   await client.GoTo((retract_pos).ToXYZString()).complete()
 
-  return a_line
+  return line
 
 async def probe_fixture_ball_side(client, fixture_home, y_pos_v2, a_pos_v2):
   '''
@@ -743,9 +638,10 @@ async def probe_fixture_ball_side(client, fixture_home, y_pos_v2, a_pos_v2):
   await client.GoTo("%s" % (retreat_pos.ToXYZString())).complete()
   return pts
 
-async def probe_b_pos(client, fixture_home, y_pos_v2, b_pos_v2):
+async def probe_fixture_ball_top(client, fixture_home, y_pos_v2, b_pos_v2):
   '''
-  Probe the fixture sphere at any given B rotation
+  Probe the fixture sphere at any given B rotation. This should first be called with fixture_home as APPROX_FIXTURE_BALL
+  and subsequent calls should use the more accurate position calculated from the best fit sphere of those points.
   '''
   logger.debug("fixture_home %s %s", fixture_home, type(fixture_home))
   pts = Feature()
@@ -847,7 +743,7 @@ async def probe_b_pos(client, fixture_home, y_pos_v2, b_pos_v2):
   # await client.GoTo("%s" % (retreat_pos.ToXYZString())).complete()
   return pts
 
-async def probe_b_line(client, y_pos_v2, b_pos_v2):
+async def probe_fixture_line(client, y_pos_v2, b_pos_v2):
   '''
   Do a head-probe line against 1 face of the probing fixture
   The fixture face being probed is on the upper rectangle, opposite from the peak of the vertical fin
