@@ -108,6 +108,7 @@ class Stages(Enum):
 
   CHARACTERIZE_X_REVERSE = auto()
   CHARACTERIZE_X = auto()
+  CHARACTERIZE_X_FIXTURE_BALL = auto()
   """
   Probes a series of spindle positions along the full length of travel of the X-axis.
 
@@ -163,6 +164,7 @@ class Stages(Enum):
 
   CHARACTERIZE_Y_REVERSE = auto()
   CHARACTERIZE_Y = auto()
+  CHARACTERIZE_Y_SPINDLE_BALL = auto()
   """
   Probes a series of fixture ball positions along the full length of travel of the Y-axis.
 

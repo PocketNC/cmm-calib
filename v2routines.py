@@ -644,18 +644,23 @@ async def probe_fixture_ball_top(client, fixture_home, y_pos_v2, b_pos_v2):
   and subsequent calls should use the more accurate position calculated from the best fit sphere of those points.
   '''
   logger.debug("fixture_home %s %s", fixture_home, type(fixture_home))
+  logger.debug(f"y_pos_v2 {y_pos_v2}")
   pts = Feature()
   
   FULL_CONTACT_RADIUS = (FIXTURE_BALL_DIA+PROBE_DIA)/2
   contact_radius = FULL_CONTACT_RADIUS
   clearance_radius = contact_radius + 2
   cor = APPROX_COR_B + float3(0,-y_pos_v2,0)
-  cor_to_ball = fixture_home - cor
+  cor_to_ball = fixture_home + float3(0,-y_pos_v2,0) - cor
+  logger.debug(f"cor {cor}")
+  logger.debug(f"cor_to_ball {cor_to_ball}")
 
   r = Rotation.from_euler('y', b_pos_v2, degrees=True)
   vectors = r.apply([ cor_to_ball, np.array((1,0,0)), np.array((0,1,0)), np.array((0,0,1)) ])
   vec_cor_to_ball = float3(vectors[0])
   ball_pos = vec_cor_to_ball + cor
+  logger.debug(f"vec_cor_to_ball {vec_cor_to_ball}")
+  logger.debug(f"ball_pos {ball_pos}")
 
   x_dir = float3(vectors[1])
   y_dir = float3(vectors[2])
