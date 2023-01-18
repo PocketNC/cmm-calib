@@ -475,10 +475,6 @@ async def prep_probe_b_line(client, y_pos_v2, b_pos_v2):
   pos_bcor = orig + float3(0,-y_pos_v2,0)
   fixture_length = FIXTURE_SIDE
 
-  await client.SetProp("Tool.PtMeasPar.Search(15)").ack()
-  await client.SetProp("Tool.PtMeasPar.Approach(10)").ack()
-  await client.SetProp("Tool.PtMeasPar.Retract(15)").ack()
-  await client.SetProp("Tool.PtMeasPar.HeadTouch(1)").complete()
   await client.AlignTool("0,1,0,0").complete()
   vec_bcor_to_startpos45 = float3(0.5*fixture_length-20,0,0-0.5*fixture_length)
   start_pos = vec_bcor_to_startpos45 + pos_bcor 
