@@ -388,7 +388,7 @@ def getYHomeOffsetFromASpheres(state):
 
   vec = circle[1]-z0
 
-  y_dir = getYDirection(state)
+  y_dir = getYDirectionOOS(state)
 
   return np.dot(y_dir, vec)
 
@@ -408,6 +408,6 @@ def getXHomeOffsetFromBSpheres(state):
 
   vec = circle[1]-x0
 
-  x_dir = getXDirection(state)
+  x_dir = getXDirectionOOS(state)
 
   return np.dot(x_dir, vec)

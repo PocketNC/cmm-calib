@@ -326,14 +326,14 @@ class CalibState:
     # like features to Feature objects.
     return convertJSONDataToFeatures(self.stages[stage])
 
-  def mergeIntoStage(stage, data):
+  def mergeIntoStage(self, stage, data):
     if type(stage) == int:
       logger.debug("Was passed in an int: %s", stage)
       stage = self.enumClass(stage)
     elif type(stage) == str:
       logger.debug("Was passed in a string: %s", stage)
       stage = self.enumClass[stage]
-
+    
     self.stages[stage].update(data)
     with open(os.path.join(self.dir, stage.name), 'w') as f:
       dataStr = json.dumps(self.stages[stage], cls=CalibStateEncoder)
