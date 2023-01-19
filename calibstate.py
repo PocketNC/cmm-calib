@@ -6,6 +6,7 @@ import json
 from enum import Enum, auto
 from metrology import Feature, convertJSONDataToFeatures
 import logging
+from copy import deepcopy
 
 logger = logging.getLogger(__name__)
 
@@ -276,6 +277,11 @@ class Stages(Enum):
   VERIFY_B = auto()
   CALC_VERIFY = auto()
   WRITE_VERIFY = auto()
+  DEVELOPMENT = auto()
+  """
+  A stage that can be a sandbox for testing. Can be used to store data that would normally be saved to a stage, but
+  may simply be an experiment.
+  """
 
   @classmethod
   def has_name(cls, name):
@@ -315,7 +321,24 @@ class CalibState:
 
         self.stages[stage] = rawData
 
+    # This explicitly returns a deep copy of stages, so a user can't
+    # manipulate stages, it also converts any JSON objects that look
+    # like features to Feature objects.
     return convertJSONDataToFeatures(self.stages[stage])
+
+  def mergeIntoStage(stage, data):
+    if type(stage) == int:
+      logger.debug("Was passed in an int: %s", stage)
+      stage = self.enumClass(stage)
+    elif type(stage) == str:
+      logger.debug("Was passed in a string: %s", stage)
+      stage = self.enumClass[stage]
+
+    self.stages[stage].update(data)
+    with open(os.path.join(self.dir, stage.name), 'w') as f:
+      dataStr = json.dumps(self.stages[stage], cls=CalibStateEncoder)
+      f.write(dataStr)
+
 
   def saveStage(self, stage, data):
     if type(stage) == int:
@@ -326,7 +349,9 @@ class CalibState:
       stage = self.enumClass[stage]
 
     logger.debug("Saving stage %s", stage)
-    self.stages[stage] = data
+    # Save a deep copy of the data passed in, so the data can't
+    # be modified as a side effect later, using the same reference.
+    self.stages[stage] = deepcopy(data)
     with open(os.path.join(self.dir, stage.name), 'w') as f:
       dataStr = json.dumps(data, cls=CalibStateEncoder)
       f.write(dataStr)

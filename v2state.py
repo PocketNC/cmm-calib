@@ -18,6 +18,9 @@ def getPlaneA90(state):
 def getFeaturesX(state):  
   return state.getStage(Stages.CHARACTERIZE_X)['features']
 
+def getFeaturesXFixtureBall(state):  
+  return state.getStage(Stages.CHARACTERIZE_X_FIXTURE_BALL)['features']
+
 def getFeaturesY(state):  
   return state.getStage(Stages.CHARACTERIZE_Y)['features']
 
@@ -38,6 +41,66 @@ def getXDirection(state):
 
   spheres = v2calculations.calc_sphere_centers(reversed(feats))
   (pt,dir) = spheres.line()
+  return dir
+
+def getXDirectionOOS(state):
+  x_stage = state.getStage(Stages.CHARACTERIZE_X)
+  x_stage_fixture = state.getStage(Stages.CHARACTERIZE_X_FIXTURE_BALL)
+
+  spheres = v2calculations.calc_sphere_centers(reversed(x_stage["features"][0:-1]))
+  spheres_fixture = v2calculations.calc_sphere_centers(reversed(x_stage_fixture["features"][0:-1]))
+
+  spindle_ball_points = spheres.points()
+  fixture_ball_points = spheres_fixture.points()
+
+  fixture_ref_pt = x_stage_fixture["features"][-1].sphere()[1]
+
+  line_feature = Feature()
+  for (spindle_ball_pt,fixture_ball_pt) in zip(spindle_ball_points, fixture_ball_points):
+    pt = spindle_ball_pt + (fixture_ref_pt - fixture_ball_pt)
+    line_feature.addPoint(*pt)
+
+  (pt,dir) = line_feature.line()
+  return dir
+
+def getXDirectionOOS(state):
+  x_stage = state.getStage(Stages.CHARACTERIZE_X)
+  x_stage_fixture = state.getStage(Stages.CHARACTERIZE_X_FIXTURE_BALL)
+
+  spheres = v2calculations.calc_sphere_centers(reversed(x_stage["features"][0:-1]))
+  spheres_fixture = v2calculations.calc_sphere_centers(reversed(x_stage_fixture["features"][0:-1]))
+
+  spindle_ball_points = spheres.points()
+  fixture_ball_points = spheres_fixture.points()
+
+  fixture_ref_pt = x_stage_fixture["features"][-1].sphere()[1]
+
+  line_feature = Feature()
+  for (spindle_ball_pt,fixture_ball_pt) in zip(spindle_ball_points, fixture_ball_points):
+    pt = spindle_ball_pt + (fixture_ref_pt - fixture_ball_pt)
+    line_feature.addPoint(*pt)
+
+  (pt,dir) = line_feature.line()
+  return dir
+
+def getYDirectionOOS(state):
+  y_stage = state.getStage(Stages.CHARACTERIZE_Y)
+  y_stage_fixture = state.getStage(Stages.CHARACTERIZE_Y_SPINDLE_BALL)
+
+  spheres = v2calculations.calc_sphere_centers(reversed(y_stage["features"][0:-1]))
+  spheres_spindle = v2calculations.calc_sphere_centers(reversed(y_stage_fixture["features"][0:-1]))
+
+  fixture_ball_points = spheres.points()
+  spindle_ball_points = spheres_spindle.points()
+
+  spindle_ref_pt = y_stage_fixture["features"][-1].sphere()[1]
+
+  line_feature = Feature()
+  for (fixture_ball_pt,spindle_ball_pt) in zip(fixture_ball_points, spindle_ball_points):
+    pt = fixture_ball_pt + (spindle_ref_pt - spindle_ball_pt)
+    line_feature.addPoint(*pt)
+
+  (pt,dir) = line_feature.line()
   return dir
 
 def getYDirection(state):
