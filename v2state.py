@@ -87,8 +87,8 @@ def getYDirectionOOS(state):
   y_stage = state.getStage(Stages.CHARACTERIZE_Y)
   y_stage_fixture = state.getStage(Stages.CHARACTERIZE_Y_SPINDLE_BALL)
 
-  spheres = v2calculations.calc_sphere_centers(reversed(y_stage["features"][0:-1]))
-  spheres_spindle = v2calculations.calc_sphere_centers(reversed(y_stage_fixture["features"][0:-1]))
+  spheres = v2calculations.calc_sphere_centers(y_stage["features"][0:-1])
+  spheres_spindle = v2calculations.calc_sphere_centers(y_stage_fixture["features"][0:-1])
 
   fixture_ball_points = spheres.points()
   spindle_ball_points = spheres_spindle.points()

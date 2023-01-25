@@ -39,7 +39,7 @@ APPROX_FIN_TIP = float3(-152.27,-15,-53.28)
 V2_10 = "V2_10"
 V2_50 = "V2_50"
 
-async def probe_spindle_tip(client, spindle_home, ball_dia, x_pos_v2, z_pos_v2):
+async def probe_spindle_tip(client, spindle_home, ball_dia, x_pos_v2, z_pos_v2, probes=1):
   """
   Probe against the ball mounted in the spindle
   Probe should be aligned vertical (or close) before running
@@ -80,27 +80,33 @@ async def probe_spindle_tip(client, spindle_home, ball_dia, x_pos_v2, z_pos_v2):
 
   # probe in -X dir
   contact_pos = orig + float3(contact_radius,0,0) 
-  ptMeas = await client.PtMeas("%s,IJK(1,0,0)" % (contact_pos.ToXYZString())).data()
-  pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.addPoint(*pt)
+
+  for i in range(probes):
+    ptMeas = await client.PtMeas("%s,IJK(1,0,0)" % (contact_pos.ToXYZString())).data()
+    pt = float3.FromXYZString(ptMeas.data_list[0])
+    pts.addPoint(*pt)
 
   # move to -Z pos, probe in +Z dir
   start_pos = orig + float3(0,0,-clearance_radius)
   tool_alignment = np.array((tool_orig - start_pos).normalize())
   await client.AlignTool("%s,%s,%s,0" %(tool_alignment[0],tool_alignment[1],tool_alignment[2])).complete()
   await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
-  ptMeas = await client.PtMeas("%s,IJK(0,0,-1)" % ((orig + float3(0,0,-contact_radius)).ToXYZString())).data()
-  pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.addPoint(*pt)
+
+  for i in range(probes):
+    ptMeas = await client.PtMeas("%s,IJK(0,0,-1)" % ((orig + float3(0,0,-contact_radius)).ToXYZString())).data()
+    pt = float3.FromXYZString(ptMeas.data_list[0])
+    pts.addPoint(*pt)
 
   # move to -X pos, probe in +X dir
   start_pos = orig + float3(-clearance_radius,0,0) 
   tool_alignment = np.array((tool_orig - start_pos).normalize())
   await client.AlignTool("%s,%s,%s,0" %(tool_alignment[0],tool_alignment[1],tool_alignment[2])).complete()
   await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
-  ptMeas = await client.PtMeas("%s,IJK(-1,0,0)" % ((orig + float3(-contact_radius,0,0)).ToXYZString())).data()
-  pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.addPoint(*pt)
+
+  for i in range(probes):
+    ptMeas = await client.PtMeas("%s,IJK(-1,0,0)" % ((orig + float3(-contact_radius,0,0)).ToXYZString())).data()
+    pt = float3.FromXYZString(ptMeas.data_list[0])
+    pts.addPoint(*pt)
 
   #rise 2mm and probe another 3 points
   orig = orig + float3(0,ball_dia/3,0)
@@ -109,27 +115,33 @@ async def probe_spindle_tip(client, spindle_home, ball_dia, x_pos_v2, z_pos_v2):
   tool_alignment = np.array((tool_orig - start_pos).normalize())
   await client.AlignTool("%s,%s,%s,0" %(tool_alignment[0],tool_alignment[1],tool_alignment[2])).complete()
   await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
-  ptMeas = await client.PtMeas("%s,IJK(-1,0,0)" % ((orig + float3(-contact_radius,0,0)).ToXYZString())).data()
-  pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.addPoint(*pt)
+
+  for i in range(probes):
+    ptMeas = await client.PtMeas("%s,IJK(-1,0,0)" % ((orig + float3(-contact_radius,0,0)).ToXYZString())).data()
+    pt = float3.FromXYZString(ptMeas.data_list[0])
+    pts.addPoint(*pt)
 
   # move to -Z pos, probe in +Z dir
   start_pos = orig + float3(0,0,-clearance_radius)
   tool_alignment = np.array((tool_orig - start_pos).normalize())
   await client.AlignTool("%s,%s,%s,0" %(tool_alignment[0],tool_alignment[1],tool_alignment[2])).complete()
   await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
-  ptMeas = await client.PtMeas("%s,IJK(0,0,-1)" % ((orig + float3(0,0,-contact_radius)).ToXYZString())).data()
-  pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.addPoint(*pt)
+
+  for i in range(probes):
+    ptMeas = await client.PtMeas("%s,IJK(0,0,-1)" % ((orig + float3(0,0,-contact_radius)).ToXYZString())).data()
+    pt = float3.FromXYZString(ptMeas.data_list[0])
+    pts.addPoint(*pt)
 
   # move to +X pos, probe in -X dir
   start_pos = orig + float3(clearance_radius,0,0) 
   tool_alignment = np.array((tool_orig - start_pos).normalize())
   await client.AlignTool("%s,%s,%s,0" %(tool_alignment[0],tool_alignment[1],tool_alignment[2])).complete()
   await client.GoTo("%s" % (start_pos.ToXYZString())).complete()
-  ptMeas = await client.PtMeas("%s,IJK(1,0,0)" % ((orig + float3(contact_radius,0,0)).ToXYZString())).data()
-  pt = float3.FromXYZString(ptMeas.data_list[0])
-  pts.addPoint(*pt) 
+
+  for i in range(probes):
+    ptMeas = await client.PtMeas("%s,IJK(1,0,0)" % ((orig + float3(contact_radius,0,0)).ToXYZString())).data()
+    pt = float3.FromXYZString(ptMeas.data_list[0])
+    pts.addPoint(*pt) 
 
   await client.GoTo((orig + float3(0,50,0)).ToXYZString()).complete()
 
