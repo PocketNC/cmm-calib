@@ -6,6 +6,7 @@ import math
 from metrology import Feature, angle_between_ccw_2d, intersectLines, angle_between
 from ipp import Csy
 import logging
+from compensation import calculateACompensation, calculateBCompensation
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +50,8 @@ def calc_pos_a(a_line, x_dir, y_dir, z_dir, origin):
   coordinate to calculate a ccw angle.
   '''
 
-#  a_line is sampled from top to bottom, so going in the -Y direction when A is 0. Reverse the order
-#  to make it go in the +Y direction, then project it to the YZ plane.
+  # a_line is sampled from top to bottom, so going in the -Y direction when A is 0. Reverse the order
+  # to make it go in the +Y direction, then project it to the YZ plane.
   a_line_proj = a_line.reverse().projectToPlane((origin,x_dir))
   a_line_proj_line = a_line_proj.line()
   a_proj_line_dir = a_line_proj_line[1]
@@ -75,8 +76,8 @@ def calc_pos_b(b_line, x_dir, y_dir, z_dir, origin):
   coordinate to calculate a ccw angle.
   '''
 
-#  b_line is sampled going in the -X direction. Reverse the order
-#  to make it go in the +X direction, then project it to the XZ plane.
+  # b_line is sampled going in the -X direction. Reverse the order
+  # to make it go in the +X direction, then project it to the XZ plane.
   b_line_proj = b_line.reverse().projectToPlane((origin,y_dir))
   
   line = b_line_proj.line()
@@ -200,7 +201,6 @@ def calc_b_table_offset(self, pos_a_cor, pos_top_plane, y_dir, probe_dia):
   b_table_offset = (dist_top_plane_to_a_cor + FIXTURE_HEIGHT) / 25.4
   #TODO return b_table_offset
 
-
 def calc_tool_probe_offset(self, tool_probe_pos, plane_a90, x_dir, y_dir, z_dir, origin):
   pass #TODO
 
@@ -228,3 +228,41 @@ def calc_parallelism(dir1,dir2,run):
 
   return np.linalg.norm(run*dir1-run*dot*dir2)
 
+
+def calc_home_offset_a(a_home_feats, x_dir, y_dir, z_dir, origin, a_comp):
+  """
+  Calculate A home offset.
+    The true angular distance from the latch position to the zero position is known
+      average latch angle is known from HOMING_A stage
+      zero angle defined by Z-axis
+        there is also a line feature "zero" in CHARACTERIZE_A that was probed after walking onto zero
+    An A-axis comp table has been created from CHARACTERIZE_A data, with an assumption of a correct home position
+    New home offset equals the latch angle plus the value of the comp table sampled at the latch angle
+    new_home_offset = latch_pos + a_comp(latch_pos)
+  """
+  latch_positions = []
+  for a_line in a_home_feats:
+    a_pos = v2calculations.calc_pos_a(a_line, x_dir, y_dir, z_dir, origin)
+    latch_positions.append(a_pos)
+  a_latch_pos = np.array(latch_positions).mean()
+  a_home_offset = a_latch_pos + a_comp(latch_pos)
+  return a_home_offset
+
+def calc_home_offset_b(b_home_feats, x_dir, y_dir, z_dir, origin, b_comp):
+  """
+  Calculate A home offset.
+    The true angular distance from the latch position to the zero position is known
+      average latch angle is known from HOMING_A stage
+      zero angle defined by Z-axis
+        there is also a line feature "zero" in CHARACTERIZE_A that was probed after walking onto zero
+    An A-axis comp table has been created from CHARACTERIZE_A data, with an assumption of a correct home position
+    New home offset equals the latch angle plus the value of the comp table sampled at the latch angle
+    new_home_offset = latch_pos + a_comp(latch_pos)
+  """
+  latch_positions = []
+  for b_line in b_home_feats:
+    b_pos = v2calculations.calc_pos_a(b_line, x_dir, y_dir, z_dir, origin)
+    latch_positions.append(b_pos)
+  b_latch_pos = np.array(latch_positions).mean()
+  b_home_offset = b_latch_pos + b_comp(latch_pos)
+  return b_home_offset

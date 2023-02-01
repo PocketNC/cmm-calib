@@ -177,6 +177,17 @@ class Stages(Enum):
 
   """
 
+  PROBE_OFFSETS = auto()
+  """
+  Probes a number of features used in calculating a number of linear offsets
+
+  Probes the top plane of the calibration fixture.
+  Probes features needed to calculate PROBE_SENSOR_123_OFFSET and PROBE_B_TABLE_OFFSET
+  Gathers measurements for calculating the X and Y home offsets. The V2 is commanded to A90.
+
+  """
+  
+
   PROBE_TOP_PLANE = auto()
   """
   Probes the top plane of the calibration fixture.
@@ -186,6 +197,18 @@ class Stages(Enum):
       `top_plane` - Feature that represents the plane of the top face of the calibration fixture.
       `y` - The y position the V2 was commanded to when probing the top face.
 
+  """
+
+  TOOL_PROBE_OFFSET = auto()
+  """
+  Probes features needed to calculate PROBE_SENSOR_123_OFFSET
+  Performs a V2 tool probe, with a calibration sphere in the spindle. 
+  Then withdraws Z axes, lowers Y axis, and returns Z axis to position where contact occured
+  Then probes sphere in spindle.
+  Then withdraws Z, rotates A-axis to 90 degrees, and probes 3 points on the face to create a plane feature
+  Stores the following keys in the stage:
+     `tool_probe_pos` - Sphere feature, probed against the spindle sphere at the X and Z position where tool probe button contact occurred
+     `plane_a90` - Plane feature, probed against the fixture top plane at Y0A90
   """
 
   PROBE_HOME_OFFSETS = auto()
@@ -240,13 +263,75 @@ class Stages(Enum):
   CHARACTERIZE_A_LINE = auto()
   """
   Probes a series of lines against the fixture fin along the full arc of travel of the A-axis.
+  First iteratively zeroes the A-axis. A set of points for the zero position is saved.
   Stores the following keys in the stage:
      `features` - List of line features probed as the A-axis rotates.
      `positions` - The A position of the spindle where each of the `features` were probed.
+     `zero` - A line feature probed after walking on to the true zero position
+     `zero_a_pos` - The nominal A-axis posture at the true zero position
   """
   
   CHARACTERIZE_B_LINE_REVERSE = auto()
   CHARACTERIZE_B_LINE = auto()
+  """
+  Probes a series of lines against the fixture fin along the full arc of travel of the B-axis.
+  First iteratively zeroes the B-axis. A set of points for the zero position is saved.
+  Stores the following keys in the stage:
+     `features` - List of line features probed as the B-axis rotates.
+     `positions` - The B position of the spindle where each of the `features` were probed.
+     `zero` - A line feature probed after walking on to the true zero position
+     `zero_b_pos` - The nominal B-axis posture at the true zero position
+  """
+
+  CALIBRATE = auto()
+  """
+  Calculate new set of compensation data using calibstate data
+  Create compensation files in POCKETNC_VAR_DIR
+  Restart services (PocketNC and Rockhopper)
+  Take machine out of E-stop 
+  And then home
+  """
+
+  VERIFY_HOMING_X = auto()
+  """
+  Repeatedly commands the X axis to a random position, unhomes, then homes the X axis, commands the X axis to 0 then probes the ball in the spindle using info
+  found in the PROBE_SPINDLE_POS Stage.
+  Stores a list of probed sphere features under the stage's key, `features`. Also stores a list of positions that represent where V2 was commanded
+  when the probing occurred (these should be X0, Z0).
+  """
+
+  VERIFY_HOMING_Y = auto()
+  """
+  Repeatedly commands the Y axis to a random position, unhomes, then homes the Y axis, commands the Y axis to 0 then probes the fixture ball using info
+  found in the PROBE_FIXTURE_BALL_POS Stage.
+
+  Stores a list of probed sphere features under the stage's key, `features`. Also stores a list of positions that represent where V2 was commanded
+  when the probing occurred (these should be Y0).
+  """
+
+  VERIFY_HOMING_A = auto()
+  """
+  Repeatedly commands the A-axis to a random position, unhomes, then homes the A axis, and then probes a line along the fixture fin 
+  Stores a list of probed line features under the stage's key, `features`. 
+  Also stores a list of positions that represent where V2 was commanded when the probing occurred (these should be Y0A0).
+  """
+
+  VERIFY_HOMING_B = auto()
+  """
+  Repeatedly commands the B-axis to a random position, unhomes, then homes the B axis, and then probes a line along the fixture side 
+  Stores a list of probed line features under the stage's key, `features`. 
+  Also stores a list of positions that represent where V2 was commanded when the probing occurred (these should be Y0B0).
+  """
+
+  VERIFY_A_LINE = auto()
+  """
+  Probes a series of lines against the fixture fin along the full arc of travel of the A-axis.
+  Stores the following keys in the stage:
+     `features` - List of line features probed as the A-axis rotates.
+     `positions` - The A position of the spindle where each of the `features` were probed.
+  """
+
+  VERIFY_B_LINE = auto()
   """
   Probes a series of lines against the fixture fin along the full arc of travel of the B-axis.
   Stores the following keys in the stage:
@@ -254,29 +339,25 @@ class Stages(Enum):
      `positions` - The B position of the spindle where each of the `features` were probed.
   """
 
-  TOOL_PROBE_OFFSET = auto()
+  VERIFY_OFFSETS = auto()
   """
-  Probes features needed to calculate PROBE_SENSOR_123_OFFSET
-  Performs a V2 tool probe, with a calibration sphere in the spindle. 
-  Then withdraws Z axes, lowers Y axis, and returns Z axis to position where contact occured
-  Then probes sphere in spindle.
-  Then withdraws Z, rotates A-axis to 90 degrees, and probes 3 points on the face to create a plane feature
+  Probes a series of lines against the fixture fin along the full arc of travel of the B-axis.
   Stores the following keys in the stage:
-     `tool_probe_pos` - Sphere feature, probed against the spindle sphere at the X and Z position where tool probe button contact occurred
-     `plane_a90` - Plane feature, probed against the fixture top plane at Y0A90
+     `features` - List of line features probed as the B-axis rotates.
+     `positions` - The B position of the spindle where each of the `features` were probed.
   """
 
-  CALC_CALIB = auto()
-  WRITE_CALIB = auto()
-  '''verification stages'''
-  RESTART_CNC: auto()
-  SETUP_VERIFY = auto()
-  VERIFY_A_HOMING = auto()
-  VERIFY_B_HOMING = auto()
+
+  VERIFY_X = auto()
+  VERIFY_Y = auto()
+  VERIFY_Z = auto()
   VERIFY_A = auto()
   VERIFY_B = auto()
   CALC_VERIFY = auto()
   WRITE_VERIFY = auto()
+
+  RESTART_CNC = auto()
+  
   DEVELOPMENT = auto()
   """
   A stage that can be a sandbox for testing. Can be used to store data that would normally be saved to a stage, but
@@ -351,7 +432,32 @@ class CalibState:
     logger.debug("Saving stage %s", stage)
     # Save a deep copy of the data passed in, so the data can't
     # be modified as a side effect later, using the same reference.
-    self.stages[stage] = deepcopy(data)
+    if self.stages[stage]:
+      stage_data = [self.stages[stage],{'data': deepcopy(data), 'metadata': self.startupCalibration}]
+    else:
+      stage_data = [{'data': deepcopy(data), 'metadata': self.startupCalibration}]
+    self.stages[stage] = stage_data
     with open(os.path.join(self.dir, stage.name), 'w') as f:
-      dataStr = json.dumps(data, cls=CalibStateEncoder)
+      dataStr = json.dumps(stage_data, cls=CalibStateEncoder)
       f.write(dataStr)
+
+  def storeStartupState(self):
+    self.startupCalibration = getCurrentCalib()
+
+  def getCurrentCalib(self):
+    curr = {}
+    with open(os.path.join(POCKETNC_VAR_DIR, 'CalibrationOverlay.inc'), 'r') as f:
+      curr['overlay'] = f.read()
+    with open(os.path.join(POCKETNC_VAR_DIR, 'a.comp'), 'r') as f:
+      curr['a_comp'] = f.read()
+    with open(os.path.join(POCKETNC_VAR_DIR, 'b.comp'), 'r') as f:
+      curr['b_comp'] = f.read()
+    return curr
+    
+  def writeCalibration(self,data):
+    with open(os.path.join(POCKETNC_VAR_DIR, 'CalibrationOverlay.inc'), 'w') as f:
+      f.write(data['overlay'])
+    with open(os.path.join(POCKETNC_VAR_DIR, 'a.comp'), 'r') as f:
+      f.write(data['a_comp'])
+    with open(os.path.join(POCKETNC_VAR_DIR, 'b.comp'), 'r') as f:
+      f.write(data['b_comp'])
