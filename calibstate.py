@@ -7,6 +7,9 @@ from enum import Enum, auto
 from metrology import Feature, convertJSONDataToFeatures
 import logging
 from copy import deepcopy
+import datetime
+from datetime import timezone
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -376,6 +379,7 @@ calibStateInstance = None
 class CalibState:
   def getInstance():
     global calibStateInstance
+    logger.debug('getinstance')
 
     if calibStateInstance == None:
       calibStateInstance = CalibState()
@@ -389,8 +393,9 @@ class CalibState:
       os.makedirs(dir)
 
     self.stages = {}
+    self.storeStartupCalibration()
 
-  def getStage(self, stage):
+  def getStageAll(self, stage):
     if type(stage) == int:
       stage = self.enumClass(stage)
     elif type(stage) == str:
@@ -407,6 +412,25 @@ class CalibState:
     # like features to Feature objects.
     return convertJSONDataToFeatures(self.stages[stage])
 
+  def getStage(self, stage):
+    if type(stage) == int:
+      stage = self.enumClass(stage)
+    elif type(stage) == str:
+      stage = self.enumClass[stage]
+
+    if stage not in self.stages:
+      logger.debug("stage %s not in stages" % (stage))
+      with open(os.path.join(self.dir, stage.name), 'r') as f:
+        rawData = json.loads(f.read())
+        logger.debug("stage rawdata %s" % (rawData))
+
+        self.stages[stage] = rawData
+
+    # This explicitly returns a deep copy of stages, so a user can't
+    # manipulate stages, it also converts any JSON objects that look
+    # like features to Feature objects.
+    return convertJSONDataToFeatures(self.stages[stage][-1]['data'])
+
   def mergeIntoStage(self, stage, data):
     if type(stage) == int:
       logger.debug("Was passed in an int: %s", stage)
@@ -421,6 +445,24 @@ class CalibState:
       f.write(dataStr)
 
 
+  def updateStage(self, stage, data):
+    if type(stage) == int:
+      logger.debug("Was passed in an int: %s", stage)
+      stage = self.enumClass(stage)
+    elif type(stage) == str:
+      logger.debug("Was passed in a string: %s", stage)
+      stage = self.enumClass[stage]
+
+    logger.debug("Updating stage %s with new data", stage)
+    # Save a deep copy of the data passed in, so the data can't
+    # be modified as a side effect later, using the same reference.
+    self.stages[stage][-1]['meta']['modification_time'] = self.getTimestamp()
+    self.stages[stage][-1]['data'] = deepcopy(data)
+    with open(os.path.join(self.dir, stage.name), 'w') as f:
+      dataStr = json.dumps(self.stages[stage], cls=CalibStateEncoder)
+      f.write(dataStr)
+
+
   def saveStage(self, stage, data):
     if type(stage) == int:
       logger.debug("Was passed in an int: %s", stage)
@@ -429,29 +471,54 @@ class CalibState:
       logger.debug("Was passed in a string: %s", stage)
       stage = self.enumClass[stage]
 
+    stack = traceback.extract_stack()
+    logger.debug('SaveStage stack trace %s' % (''.join(stack.format()),))
+    
     logger.debug("Saving stage %s", stage)
     # Save a deep copy of the data passed in, so the data can't
     # be modified as a side effect later, using the same reference.
-    if self.stages[stage]:
-      stage_data = [self.stages[stage],{'data': deepcopy(data), 'metadata': self.startupCalibration}]
+    metadata = self.getInitialMetadata()
+    if stage in self.stages:
+      self.stages[stage].append({'data': deepcopy(data), 'meta': self.getInitialMetadata()})
     else:
-      stage_data = [{'data': deepcopy(data), 'metadata': self.startupCalibration}]
-    self.stages[stage] = stage_data
+      self.stages[stage] = [{'data': deepcopy(data), 'meta': self.getInitialMetadata()}]
     with open(os.path.join(self.dir, stage.name), 'w') as f:
-      dataStr = json.dumps(stage_data, cls=CalibStateEncoder)
+      dataStr = json.dumps(self.stages[stage], cls=CalibStateEncoder)
       f.write(dataStr)
 
-  def storeStartupState(self):
-    self.startupCalibration = getCurrentCalib()
+  def getTimestamp(self):
+    dt = datetime.datetime.now(timezone.utc)
+    utc_time = dt.replace(tzinfo=timezone.utc)
+    return utc_time.strftime("%Y-%m-%d %H:%M:%S")
+
+  def getInitialMetadata(self):
+    data = {}
+    data['calibration'] = self.startupCalibration
+    data['creation_time'] = self.getTimestamp()
+    data['modification_time'] = data['creation_time']
+    return data
+
+  def storeStartupCalibration(self):
+    logger.debug('storeStartupCalibration')
+    self.startupCalibration = self.getCurrentCalib()
 
   def getCurrentCalib(self):
     curr = {}
-    with open(os.path.join(POCKETNC_VAR_DIR, 'CalibrationOverlay.inc'), 'r') as f:
-      curr['overlay'] = f.read()
-    with open(os.path.join(POCKETNC_VAR_DIR, 'a.comp'), 'r') as f:
-      curr['a_comp'] = f.read()
-    with open(os.path.join(POCKETNC_VAR_DIR, 'b.comp'), 'r') as f:
-      curr['b_comp'] = f.read()
+    try:
+      with open(os.path.join(POCKETNC_VAR_DIR, 'CalibrationOverlay.inc'), 'r') as f:
+        curr['overlay'] = f.read()
+    except:
+      logger.error("Missing calib file CalibrationOverlay.inc")
+    try:
+      with open(os.path.join(POCKETNC_VAR_DIR, 'a.comp'), 'r') as f:
+        curr['a_comp'] = f.read()
+    except:
+      logger.error("Missing calib file a.comp")
+    try:
+      with open(os.path.join(POCKETNC_VAR_DIR, 'b.comp'), 'r') as f:
+        curr['b_comp'] = f.read()
+    except:
+      logger.error("Missing calib file b.comp")
     return curr
     
   def writeCalibration(self,data):
