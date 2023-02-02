@@ -412,24 +412,11 @@ class CalibState:
     # like features to Feature objects.
     return convertJSONDataToFeatures(self.stages[stage])
 
+  def getStageRun(self, stage):
+    return self.getStageAll(stage)[-1]
+
   def getStage(self, stage):
-    if type(stage) == int:
-      stage = self.enumClass(stage)
-    elif type(stage) == str:
-      stage = self.enumClass[stage]
-
-    if stage not in self.stages:
-      logger.debug("stage %s not in stages" % (stage))
-      with open(os.path.join(self.dir, stage.name), 'r') as f:
-        rawData = json.loads(f.read())
-        logger.debug("stage rawdata %s" % (rawData))
-
-        self.stages[stage] = rawData
-
-    # This explicitly returns a deep copy of stages, so a user can't
-    # manipulate stages, it also converts any JSON objects that look
-    # like features to Feature objects.
-    return convertJSONDataToFeatures(self.stages[stage][-1]['data'])
+    return self.getStageAll(stage)[-1]['data']
 
   def mergeIntoStage(self, stage, data):
     if type(stage) == int:
@@ -446,6 +433,10 @@ class CalibState:
 
 
   def updateStage(self, stage, data):
+    """
+    Updates the last run of the provided stage with new data. Also updates meta data such as modification_time.
+    Assumes that saveStage has been called prior to updateStage.
+    """
     if type(stage) == int:
       logger.debug("Was passed in an int: %s", stage)
       stage = self.enumClass(stage)
@@ -464,12 +455,22 @@ class CalibState:
 
 
   def saveStage(self, stage, data):
+    """
+    Saves a new run of the provided stage. Includes metadata such as the active calibration and creation/modification times.
+    """
     if type(stage) == int:
       logger.debug("Was passed in an int: %s", stage)
       stage = self.enumClass(stage)
     elif type(stage) == str:
       logger.debug("Was passed in a string: %s", stage)
       stage = self.enumClass[stage]
+
+    try:
+      # Ensure the stage is loaded from disk
+      self.getStage(stage)
+    except:
+      # if it still doesn't exist, we'll create it below
+      pass
 
     stack = traceback.extract_stack()
     logger.debug('SaveStage stack trace %s' % (''.join(stack.format()),))
