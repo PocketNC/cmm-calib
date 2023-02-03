@@ -132,7 +132,7 @@ def getBZeroPt(state):
   return pt
 
 def getAPositionsLine(state):
-  (x_dir,y_dir,z_dir) = v2state.getAxisDirections(state)
+  (x_dir,y_dir,z_dir) = getAxisDirections(state)
   characterize_stage = state.getStage(Stages.CHARACTERIZE_A_LINE)
   
   zero_feat = characterize_stage['zero']

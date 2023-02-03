@@ -172,27 +172,45 @@ def calc_max_diff(numbers):
         max_diff = diff
   return max_diff
 
-def calc_home_offset_x(self, points, x_dir, y_dir, z_dir, origin, x0, x_home_offset):
+def calc_home_offset_x_error(x_dir, y_dir, x_homing_features, probe_offsets_x_features):
   """
   """
-  x_vals = []
-  for pt in points():
-    pt_cnccsy = np.matmul(self.cmm2cnc,np.append(pt,1))
-    x_vals.append(pt_cnccsy[0])
-  x_avg = np.array(x_vals).mean()
-  x_offset_err = x_avg - x0
-  return x_home_offset + x_offset_err
 
-def calc_home_offset_y(self, points, x_dir, y_dir, z_dir, origin, y0, y_home_offset):
+  planeN = np.cross(x_dir,y_dir)
+  planeN /= np.linalg.norm(planeN)
+
+  x0 = calc_sphere_centers(x_homing_features).average()
+  logger.debug("x0 %s" % (x0,));
+
+  all_x_offset_points = Feature(probe_offsets_x_features[0].points().tolist() + probe_offsets_x_features[1].points().tolist())
+
+  x_home_offset = all_x_offset_points.projectToPlane((x0,planeN)).average()
+  logger.debug("x_home_offset %s" % (x_home_offset,));
+
+  logger.debug("x_home_offset-x0 %s" % (x_home_offset-x0,));
+  logger.debug("x_dir %s" % (x_dir,));
+
+  return np.dot(x_home_offset-x0, x_dir)
+
+def calc_home_offset_y_error(x_dir, y_dir, x_homing_features, probe_offsets_y_features):
   """
   """
-  y_vals = []
-  for pt in points():
-    pt_cnccsy = np.matmul(self.cmm2cnc,np.append(pt,1))
-    y_vals.append(pt_cnccsy[1])
-  y_avg = np.array(y_vals).mean()
-  y_offset_err = y_avg - y0
-  return y_home_offset + y_offset_err
+
+  planeN = np.cross(x_dir,y_dir)
+  planeN /= np.linalg.norm(planeN)
+
+  x0 = calc_sphere_centers(x_homing_features).average()
+  logger.debug("x0 %s" % (x0,));
+
+  all_y_offset_points = Feature(probe_offsets_y_features[0].points().tolist() + probe_offsets_y_features[1].points().tolist())
+
+  y_home_offset = all_y_offset_points.projectToPlane((x0,planeN)).average()
+  logger.debug("y_home_offset %s" % (y_home_offset,));
+
+  logger.debug("y_home_offset-x0 %s" % (y_home_offset-x0,));
+  logger.debug("y_dir %s" % (y_dir,));
+
+  return np.dot(y_home_offset-x0, y_dir)
 
 def calc_b_table_offset(self, pos_a_cor, pos_top_plane, y_dir, probe_dia):
   vec_top_plane_to_a_cor = pos_a_cor - pos_top_plane
