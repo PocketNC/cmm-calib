@@ -379,7 +379,6 @@ calibStateInstance = None
 class CalibState:
   def getInstance():
     global calibStateInstance
-    logger.debug('getinstance')
 
     if calibStateInstance == None:
       calibStateInstance = CalibState()
@@ -395,22 +394,29 @@ class CalibState:
     self.stages = {}
     self.storeStartupCalibration()
 
-  def getStageAll(self, stage):
+  def getStageKey(self, stage):
     if type(stage) == int:
       stage = self.enumClass(stage)
     elif type(stage) == str:
       stage = self.enumClass[stage]
 
-    if stage not in self.stages:
-      with open(os.path.join(self.dir, stage.name), 'r') as f:
+    # Use enum's name as key as we often reload our Python context in 
+    # development see SOFT-1033
+    return stage.name
+   
+  def getStageAll(self, stage):
+    key = self.getStageKey(stage)
+
+    if key not in self.stages:
+      with open(os.path.join(self.dir, key), 'r') as f:
         rawData = json.loads(f.read())
 
-        self.stages[stage] = rawData
+        self.stages[key] = rawData
 
     # This explicitly returns a deep copy of stages, so a user can't
     # manipulate stages, it also converts any JSON objects that look
     # like features to Feature objects.
-    return convertJSONDataToFeatures(self.stages[stage])
+    return convertJSONDataToFeatures(self.stages[key])
 
   def getStageRun(self, stage):
     return self.getStageAll(stage)[-1]
@@ -419,16 +425,11 @@ class CalibState:
     return self.getStageAll(stage)[-1]['data']
 
   def mergeIntoStage(self, stage, data):
-    if type(stage) == int:
-      logger.debug("Was passed in an int: %s", stage)
-      stage = self.enumClass(stage)
-    elif type(stage) == str:
-      logger.debug("Was passed in a string: %s", stage)
-      stage = self.enumClass[stage]
+    key = self.getStageKey(stage)
     
-    self.stages[stage].update(data)
-    with open(os.path.join(self.dir, stage.name), 'w') as f:
-      dataStr = json.dumps(self.stages[stage], cls=CalibStateEncoder)
+    self.stages[key].update(data)
+    with open(os.path.join(self.dir, key), 'w') as f:
+      dataStr = json.dumps(self.stages[key], cls=CalibStateEncoder)
       f.write(dataStr)
 
 
@@ -437,20 +438,15 @@ class CalibState:
     Updates the last run of the provided stage with new data. Also updates meta data such as modification_time.
     Assumes that saveStage has been called prior to updateStage.
     """
-    if type(stage) == int:
-      logger.debug("Was passed in an int: %s", stage)
-      stage = self.enumClass(stage)
-    elif type(stage) == str:
-      logger.debug("Was passed in a string: %s", stage)
-      stage = self.enumClass[stage]
+    key = self.getStageKey(stage)
 
-    logger.debug("Updating stage %s with new data", stage)
     # Save a deep copy of the data passed in, so the data can't
     # be modified as a side effect later, using the same reference.
-    self.stages[stage][-1]['meta']['modification_time'] = self.getTimestamp()
-    self.stages[stage][-1]['data'] = deepcopy(data)
-    with open(os.path.join(self.dir, stage.name), 'w') as f:
-      dataStr = json.dumps(self.stages[stage], cls=CalibStateEncoder)
+    self.stages[key][-1]['meta']['modification_time'] = self.getTimestamp()
+    self.stages[key][-1]['data'] = deepcopy(data)
+
+    with open(os.path.join(self.dir, key), 'w') as f:
+      dataStr = json.dumps(self.stages[key], cls=CalibStateEncoder)
       f.write(dataStr)
 
 
@@ -458,33 +454,24 @@ class CalibState:
     """
     Saves a new run of the provided stage. Includes metadata such as the active calibration and creation/modification times.
     """
-    if type(stage) == int:
-      logger.debug("Was passed in an int: %s", stage)
-      stage = self.enumClass(stage)
-    elif type(stage) == str:
-      logger.debug("Was passed in a string: %s", stage)
-      stage = self.enumClass[stage]
+    key = self.getStageKey(stage)
 
     try:
       # Ensure the stage is loaded from disk
-      self.getStage(stage)
+      self.getStage(key)
     except:
       # if it still doesn't exist, we'll create it below
       pass
 
-    stack = traceback.extract_stack()
-    logger.debug('SaveStage stack trace %s' % (''.join(stack.format()),))
-    
-    logger.debug("Saving stage %s", stage)
     # Save a deep copy of the data passed in, so the data can't
     # be modified as a side effect later, using the same reference.
     metadata = self.getInitialMetadata()
-    if stage in self.stages:
-      self.stages[stage].append({'data': deepcopy(data), 'meta': self.getInitialMetadata()})
+    if key in self.stages:
+      self.stages[key].append({'data': deepcopy(data), 'meta': self.getInitialMetadata()})
     else:
-      self.stages[stage] = [{'data': deepcopy(data), 'meta': self.getInitialMetadata()}]
-    with open(os.path.join(self.dir, stage.name), 'w') as f:
-      dataStr = json.dumps(self.stages[stage], cls=CalibStateEncoder)
+      self.stages[key] = [{'data': deepcopy(data), 'meta': self.getInitialMetadata()}]
+    with open(os.path.join(self.dir, key), 'w') as f:
+      dataStr = json.dumps(self.stages[key], cls=CalibStateEncoder)
       f.write(dataStr)
 
   def getTimestamp(self):
@@ -500,7 +487,6 @@ class CalibState:
     return data
 
   def storeStartupCalibration(self):
-    logger.debug('storeStartupCalibration')
     self.startupCalibration = self.getCurrentCalib()
 
   def getCurrentCalib(self):
@@ -523,9 +509,12 @@ class CalibState:
     return curr
     
   def writeCalibration(self,data):
-    with open(os.path.join(POCKETNC_VAR_DIR, 'CalibrationOverlay.inc'), 'w') as f:
-      f.write(data['overlay'])
-    with open(os.path.join(POCKETNC_VAR_DIR, 'a.comp'), 'r') as f:
-      f.write(data['a_comp'])
-    with open(os.path.join(POCKETNC_VAR_DIR, 'b.comp'), 'r') as f:
-      f.write(data['b_comp'])
+    with open(os.path.join(POCKETNC_VAR_DIR, 'calib-test'), 'w') as f:
+      f.write(json.dumps(data))
+    
+#    with open(os.path.join(POCKETNC_VAR_DIR, 'CalibrationOverlay.inc'), 'w') as f:
+#      f.write(data['overlay'])
+#    with open(os.path.join(POCKETNC_VAR_DIR, 'a.comp'), 'r') as f:
+#      f.write(data['a_comp'])
+#    with open(os.path.join(POCKETNC_VAR_DIR, 'b.comp'), 'r') as f:
+#      f.write(data['b_comp'])
