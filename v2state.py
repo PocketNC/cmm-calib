@@ -164,9 +164,12 @@ def getBPositionsLine(state):
   for (feat, nom_pos) in zip(characterize_stage["features"],characterize_stage["positions"]):
     zeroed_nom_pos = nom_pos['b'] - nom_zero_pos
     b_pos = v2calculations.calc_pos_b(feat, x_dir, y_dir, z_dir, APPROX_COR)
-    if zeroed_nom_pos <= 90 and (360-b_pos) <= 5:
-      #needed because B is continuous, near-0 nominal positions have near-0 true positions, not near-360
-      zeroed_nom_pos = zeroed_nom_pos - 360
+    if b_pos-zeroed_nom_pos > 180:
+      b_pos -= 360
+
+    logger.debug("nom_pos %s", nom_pos['b'])
+    logger.debug("zeroed_nom_pos %s", zeroed_nom_pos)
+    logger.debug("b_pos %s", b_pos)
     positions.append((zeroed_nom_pos, b_pos))
 
   return positions

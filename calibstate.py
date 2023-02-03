@@ -10,6 +10,7 @@ from copy import deepcopy
 import datetime
 from datetime import timezone
 import traceback
+import ini
 
 logger = logging.getLogger(__name__)
 
@@ -510,12 +511,33 @@ class CalibState:
     
   def writeCalibration(self,data):
     logger.debug("data: %s", data)
-    with open(os.path.join(POCKETNC_VAR_DIR, 'calib-test'), 'w') as f:
-      f.write(json.dumps(data))
-    
-#    with open(os.path.join(POCKETNC_VAR_DIR, 'CalibrationOverlay.inc'), 'w') as f:
-#      f.write(data['overlay'])
-#    with open(os.path.join(POCKETNC_VAR_DIR, 'a.comp'), 'r') as f:
-#      f.write(data['a_comp'])
-#    with open(os.path.join(POCKETNC_VAR_DIR, 'b.comp'), 'r') as f:
-#      f.write(data['b_comp'])
+    overlayPath = os.path.join(POCKETNC_VAR_DIR, 'CalibrationOverlay.inc')
+    overlayData = ini.read_ini_data(overlayPath)
+    ini.set_parameter(overlayData, "JOINT_0", "HOME_OFFSET", data["x_home_offset"])
+    ini.set_parameter(overlayData, "JOINT_1", "HOME_OFFSET", data["y_home_offset"])
+    ini.set_parameter(overlayData, "JOINT_3", "HOME_OFFSET", data["a_home_offset"])
+    ini.set_parameter(overlayData, "JOINT_4", "HOME_OFFSET", data["b_home_offset"])
+
+    ini.write_ini_data(overlayData, overlayPath)
+
+    with open(os.path.join(POCKETNC_VAR_DIR, 'a.comp'), 'w') as f:
+      for p in data["a_comp"]:
+        f.write("%0.6f %0.6f %0.6f\n" % (p[0], p[1], p[1]))
+
+    with open(os.path.join(POCKETNC_VAR_DIR, 'b.comp'), 'w') as f:
+      NUM_CYCLES = 28
+      for n in range(NUM_CYCLES):
+        cycle = NUM_CYCLES-n
+
+        for p in data["b_comp"]:
+          f.write("%0.6f %0.6f %0.6f\n" % (p[0]-360*cycle, p[1], p[1]))
+
+      for p in data["b_comp"]:
+        f.write("%0.6f %0.6f %0.6f\n" % (p[0], p[1], p[1]))
+
+      for n in range(NUM_CYCLES):
+        cycle = n+1
+
+        for p in data["b_comp"]:
+          f.write("%0.6f %0.6f %0.6f\n" % (p[0]+360*cycle, p[1], p[1]))
+
