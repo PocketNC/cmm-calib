@@ -28,6 +28,18 @@ def verify_linear_homing_repeatability(features, axis):
 
   return (max_dist, LINEAR_HOMING_REPEATABILITY)
 
+def verify_x_homing_accuracy(homing_features, offsets_features, x_dir, y_dir, z_dir, origin):
+  home_offset_error = v2calculations.calc_home_offset_x_error(x_dir, y_dir, homing_features, offsets_features)
+  if home_offset_error > LINEAR_HOMING_REPEATABILITY:
+    raise CalibException("X homing accuracy failure, expected error <= %s, found %s" % (LINEAR_HOMING_REPEATABILITY, home_offset_error))  
+  return (home_offset_error, LINEAR_HOMING_REPEATABILITY)
+
+def verify_y_homing_accuracy(homing_features, offsets_features, x_dir, y_dir, z_dir, origin):
+  home_offset_error = v2calculations.calc_home_offset_y_error(x_dir, y_dir, homing_features, offsets_features)
+  if home_offset_error > LINEAR_HOMING_REPEATABILITY:
+    raise CalibException("Y homing accuracy failure, expected error <= %s, found %s" % (LINEAR_HOMING_REPEATABILITY, home_offset_error))  
+  return (home_offset_error, LINEAR_HOMING_REPEATABILITY)
+
 def verify_a_homing_repeatability(features, x_dir, y_dir, z_dir, origin):
   positions = []
   for a_line in features:
