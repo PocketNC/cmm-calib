@@ -509,6 +509,7 @@ class CalibState:
     return curr
     
   def writeCalibration(self,data):
+    logger.debug("data: %s", data)
     with open(os.path.join(POCKETNC_VAR_DIR, 'calib-test'), 'w') as f:
       f.write(json.dumps(data))
     

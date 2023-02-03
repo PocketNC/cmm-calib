@@ -3,11 +3,11 @@ Helper functions for performing calculations on probed `metrology.Feature`s and 
 """
 import numpy as np
 import math
-from metrology import Feature, angle_between_ccw_2d, intersectLines, angle_between
+from metrology import Feature, angle_between_ccw_2d, intersectLines, angle_between, projectPointToPlane
 from ipp import Csy
 import logging
 from compensation import calculateACompensation, calculateBCompensation
-from v2routines import FIXTURE_HEIGHT
+from v2routines import FIXTURE_HEIGHT, PROBE_DIA
 
 logger = logging.getLogger(__name__)
 
@@ -213,19 +213,24 @@ def calc_home_offset_y_error(x_dir, y_dir, x_homing_features, probe_offsets_y_fe
 
   return np.dot(y_home_offset-x0, y_dir)
 
-def calc_b_table_offset(feat_origin_spindle_pos, feat_top_plane, y_dir, probe_dia):
+def calc_b_table_offset(feat_origin_spindle_pos, feat_top_plane, y_dir):
   '''
   This offset is supposed to be the distance along Y-axis between
   the CoR and the top of the B-table
   Assume spindle-zero-position to be at same Y-axis height as CoR
   B-table height is defined by the 'top_plane' feature in PROBE_OFFSETS stage
   '''
-  (_rad, pos_origin) = feat_origin_spindle_pos.sphere()
-  (_rad, pos_top_plane) = feat_top_plane.plane()
+  (_not_used, pos_origin) = feat_origin_spindle_pos.sphere()
+  top_plane = feat_top_plane.plane()
+
+  if np.dot(top_plane[1], y_dir) < 0:
+    top_plane = (top_plane[0], -top_plane[1])
+
+  projected_pt = projectPointToPlane(pos_origin, top_plane)
   
-  vec_top_plane_to_origin = pos_origin - pos_top_plane
-  dist_top_plane_to_origin = np.dot(vec_top_plane_to_origin, y_dir) + PROBE_DIA/2
-  logger.debug('dist_top_plane_to_a_cor %s' % dist_top_plane_to_a_cor)
+  vec_top_plane_to_origin = pos_origin - projected_pt
+  dist_top_plane_to_origin = np.dot(vec_top_plane_to_origin, top_plane[1]) + PROBE_DIA/2
+  logger.debug('dist_top_plane_to_origin %s' % dist_top_plane_to_origin)
   b_table_offset = (dist_top_plane_to_origin + FIXTURE_HEIGHT) / 25.4
   logger.debug('b_table_offset %s' % b_table_offset)
   return b_table_offset
@@ -271,27 +276,53 @@ def calc_home_offset_a(a_home_feats, x_dir, y_dir, z_dir, origin, a_comp):
   """
   latch_positions = []
   for a_line in a_home_feats:
-    a_pos = v2calculations.calc_pos_a(a_line, x_dir, y_dir, z_dir, origin)
+    a_pos = calc_pos_a(a_line, x_dir, y_dir, z_dir, origin)
     latch_positions.append(a_pos)
-  a_latch_pos = np.array(latch_positions).mean()
-  a_home_offset = a_latch_pos + a_comp(latch_pos)
+  a_latch_pos = float(np.array(latch_positions).mean())
+
+  a_home_offset = a_latch_pos - a_comp.sample(a_latch_pos)[1]
   return a_home_offset
 
 def calc_home_offset_b(b_home_feats, x_dir, y_dir, z_dir, origin, b_comp):
   """
-  Calculate A home offset.
+  Calculate B home offset.
     The true angular distance from the latch position to the zero position is known
-      average latch angle is known from HOMING_A stage
+      average latch angle is known from HOMING_B stage
       zero angle defined by Z-axis
-        there is also a line feature "zero" in CHARACTERIZE_A that was probed after walking onto zero
-    An A-axis comp table has been created from CHARACTERIZE_A data, with an assumption of a correct home position
+        there is also a line feature "zero" in CHARACTERIZE_B that was probed after walking onto zero
+    An A-axis comp table has been created from CHARACTERIZE_B data, with an assumption of a correct home position
     New home offset equals the latch angle plus the value of the comp table sampled at the latch angle
     new_home_offset = latch_pos + a_comp(latch_pos)
   """
   latch_positions = []
   for b_line in b_home_feats:
-    b_pos = v2calculations.calc_pos_a(b_line, x_dir, y_dir, z_dir, origin)
+    b_pos = calc_pos_b(b_line, x_dir, y_dir, z_dir, origin)
     latch_positions.append(b_pos)
-  b_latch_pos = np.array(latch_positions).mean()
-  b_home_offset = b_latch_pos + b_comp(latch_pos)
+  b_latch_pos = float(np.array(latch_positions).mean())
+  b_home_offset = b_latch_pos - b_comp.sample(b_latch_pos)[1]
+  if b_home_offset > 180:
+    b_home_offset -= 360
   return b_home_offset
+
+def calc_probe_sensor_123_offset(feat_spindle_at_tool_probe, feat_a90_plane, z_dir):
+  '''
+  This offset is the distance between the Z position where the tool probe button is triggered
+  and the Z position of where the tool would contact the 3" side of a 123 block placed on the
+  table of the machine at A90.
+  '''
+  (rad, pos_spindle_at_tool_probe) = feat_spindle_at_tool_probe.sphere()
+  spindle_ball_rad = rad-PROBE_DIA/2
+  logger.debug("spindle_ball_rad %s", spindle_ball_rad)
+  
+  top_plane = feat_a90_plane.plane()
+
+  pos_z_intersect_fixture_a90 = projectPointToPlane(pos_spindle_at_tool_probe, top_plane)
+
+  logger.debug("top_plane normal %s", top_plane[1])
+  logger.debug("z_dir %s", z_dir)
+  logger.debug("angle between z_dir and top_plane normal %s", angle_between(z_dir, top_plane[1]))
+
+  dist_from_tip_to_table = np.dot(z_dir, (pos_spindle_at_tool_probe-pos_z_intersect_fixture_a90))-spindle_ball_rad+PROBE_DIA/2+FIXTURE_HEIGHT
+  logger.debug("dist_from_tip_to_table %s", dist_from_tip_to_table)
+  probe_sensor_123 = dist_from_tip_to_table - 3*25.4
+  return probe_sensor_123/25.4

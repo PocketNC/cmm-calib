@@ -16,7 +16,12 @@ X_CLEARANCE_PART_CSY = -250
 
 Z_CLEARANCE_TMP_PART_CSY = 250
 
-FIXTURE_HEIGHT = 25.2476
+# Measured with calipers
+#FIXTURE_HEIGHT = 25.2476
+
+# Averaged height difference between top of fixture plane
+# and the B disc using the CMM
+FIXTURE_HEIGHT = 25.261763067277833
 FIXTURE_SIDE = 76.2
 FIXTURE_DIAG = 107.76
 FIXTURE_BALL_DIA = 6.35
@@ -778,7 +783,7 @@ async def probe_fixture_line(client, y_pos_v2, b_pos_v2):
   logger.debug("start_pos %s, drive_vec %s, face_norm %s", start_pos, drive_vec, face_norm)
   # await client.GoTo((start_pos + float3(0,25,0)).ToXYZString()).complete()
 
-  points = await routines.headline(client,start_pos, drive_vec, B_LINE_LENGTH, face_norm,3,-1,10)
+  points = await routines.headline(client,start_pos, drive_vec, B_LINE_LENGTH, face_norm,3,-1,10, 5)
   b_line = Feature()
   for pt in points:
     b_line.addPoint(*pt)
