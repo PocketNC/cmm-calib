@@ -12,6 +12,9 @@ def getFixtureBallPos(state):
 def getZeroSpindlePos(state):
   return state.getStage(Stages.PROBE_SPINDLE_POS)["zero_spindle_pos"]
 
+def getOriginSpindlePos(state):
+  return state.getStage(Stages.CHARACTERIZE_Z)["zero"]
+
 def getToolProbePos(state):
   return state.getStage(Stages.TOOL_PROBE_OFFSET)["tool_probe_pos"]
 

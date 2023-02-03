@@ -7,6 +7,7 @@ from metrology import Feature, angle_between_ccw_2d, intersectLines, angle_betwe
 from ipp import Csy
 import logging
 from compensation import calculateACompensation, calculateBCompensation
+from v2routines import FIXTURE_HEIGHT
 
 logger = logging.getLogger(__name__)
 
@@ -212,12 +213,22 @@ def calc_home_offset_y_error(x_dir, y_dir, x_homing_features, probe_offsets_y_fe
 
   return np.dot(y_home_offset-x0, y_dir)
 
-def calc_b_table_offset(self, pos_a_cor, pos_top_plane, y_dir, probe_dia):
-  vec_top_plane_to_a_cor = pos_a_cor - pos_top_plane
-  dist_top_plane_to_a_cor = np.dot(vec_top_plane_to_a_cor, y_dir) + PROBE_DIA/2
+def calc_b_table_offset(feat_origin_spindle_pos, feat_top_plane, y_dir, probe_dia):
+  '''
+  This offset is supposed to be the distance along Y-axis between
+  the CoR and the top of the B-table
+  Assume spindle-zero-position to be at same Y-axis height as CoR
+  B-table height is defined by the 'top_plane' feature in PROBE_OFFSETS stage
+  '''
+  (_rad, pos_origin) = feat_origin_spindle_pos.sphere()
+  (_rad, pos_top_plane) = feat_top_plane.plane()
+  
+  vec_top_plane_to_origin = pos_origin - pos_top_plane
+  dist_top_plane_to_origin = np.dot(vec_top_plane_to_origin, y_dir) + PROBE_DIA/2
   logger.debug('dist_top_plane_to_a_cor %s' % dist_top_plane_to_a_cor)
-  b_table_offset = (dist_top_plane_to_a_cor + FIXTURE_HEIGHT) / 25.4
-  #TODO return b_table_offset
+  b_table_offset = (dist_top_plane_to_origin + FIXTURE_HEIGHT) / 25.4
+  logger.debug('b_table_offset %s' % b_table_offset)
+  return b_table_offset
 
 def calc_tool_probe_offset(self, tool_probe_pos, plane_a90, x_dir, y_dir, z_dir, origin):
   pass #TODO
