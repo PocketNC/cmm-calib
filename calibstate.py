@@ -530,14 +530,17 @@ class CalibState:
         cycle = NUM_CYCLES-n
 
         for p in data["b_comp"]:
-          f.write("%0.6f %0.6f %0.6f\n" % (p[0]-360*cycle, p[1], p[1]))
+          if p[0] < 360:
+            f.write("%0.6f %0.6f %0.6f\n" % (p[0]-360*cycle, p[1], p[1]))
 
       for p in data["b_comp"]:
-        f.write("%0.6f %0.6f %0.6f\n" % (p[0], p[1], p[1]))
+        if p[0] < 360:
+          f.write("%0.6f %0.6f %0.6f\n" % (p[0], p[1], p[1]))
 
       for n in range(NUM_CYCLES):
         cycle = n+1
 
         for p in data["b_comp"]:
-          f.write("%0.6f %0.6f %0.6f\n" % (p[0]+360*cycle, p[1], p[1]))
+          if p[0] < 360:
+            f.write("%0.6f %0.6f %0.6f\n" % (p[0]+360*cycle, p[1], p[1]))
 
