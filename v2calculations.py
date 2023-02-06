@@ -326,3 +326,23 @@ def calc_probe_sensor_123_offset(feat_spindle_at_tool_probe, feat_a90_plane, z_d
   logger.debug("dist_from_tip_to_table %s", dist_from_tip_to_table)
   probe_sensor_123 = dist_from_tip_to_table - 3*25.4
   return probe_sensor_123/25.4
+
+def calc_homing_error_a(home_feats, x_dir, y_dir, z_dir, origin):
+  """
+  Calculate maximum homing error for a list of A-home line features
+  """
+  max_error = 0
+  for home_line in home_feats:
+    error = abs(calc_pos_a(home_line, x_dir, y_dir, z_dir, origin))
+    max_error = error if error > max_error else max_error
+  return max_error
+
+def calc_homing_error_b(home_feats, x_dir, y_dir, z_dir, origin):
+  """
+  Calculate maximum homing error for a list of B-home line features
+  """
+  max_error = 0
+  for home_line in home_feats:
+    error = abs(calc_pos_b(home_line, x_dir, y_dir, z_dir, origin))
+    max_error = error if error > max_error else max_error
+  return max_error
