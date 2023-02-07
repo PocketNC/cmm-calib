@@ -6,6 +6,47 @@ from metrology import Feature, angle_between_ccw_2d, intersectLines, angle_betwe
 import numpy as np
 logger = logging.getLogger(__name__)
 
+def getHomeOffsetDx(state, interpreter):
+  """
+  Our current X home offset may have changed since the PROBE_SPINDLE_POS stage
+  so look up what it was, look up what it is now and take the difference 
+  (returns previous-current).
+
+  TODO - if we start using a compensation table for the linear axes, we may
+  need to apply the compensation table to the offset as well, but hopefully
+  a compensation table would make a negligible enough difference that we could
+  avoid it.
+  """
+  meta = state.getStageMeta(Stages.PROBE_SPINDLE_POS)
+  overlayData = ini.read_ini_string(meta['calibration']['overlay'])
+  x_home_offset = float(ini.get_parameter(overlayData, "JOINT_0", "HOME_OFFSET")["values"]["value"])
+  current_x_home_offset = interpreter.params["_hal[ini.0.home_offset]"]
+  dx = -(current_x_home_offset-x_home_offset)*25.4 # Machine units is in inches, so convert to mm
+
+  return dx
+
+def getHomeOffsetDy(state, interpreter):
+  """
+  Our current Y home offset may have changed since the PROBE_FIXTURE_BALL_POS stage
+  so look up what it is now, look up what it was and return the difference (returns current-previous).
+  Note that this value is inverted when compared with getHomeOffsetDx because the table moves down
+  when going in a positive direction, whereas the spindle moves in the same direction as the X axis.
+
+  Assumes that the machine units are in inches. Returns mm.
+
+  TODO - if we start using a compensation table for the linear axes, we may
+  need to apply the compensation table to the offset as well, but hopefully
+  a compensation table would make a negligible enough difference that we could
+  avoid it.
+  """
+  meta = state.getStageMeta(Stages.PROBE_FIXTURE_BALL_POS)
+  overlayData = ini.read_ini_string(meta['calibration']['overlay'])
+  y_home_offset = float(ini.get_parameter(overlayData, "JOINT_1", "HOME_OFFSET")["values"]["value"])
+  current_y_home_offset = interpreter.params["_hal[ini.1.home_offset]"]
+  dy = (current_y_home_offset-y_home_offset)*25.4 # Machine units is in inches, so convert to mm
+
+  return dy
+
 def getFixtureBallPos(state):
   return state.getStage(Stages.PROBE_FIXTURE_BALL_POS)["fixture_ball_pos"]
 

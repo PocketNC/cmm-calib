@@ -419,6 +419,9 @@ class CalibState:
     # like features to Feature objects.
     return convertJSONDataToFeatures(self.stages[key])
 
+  def getStageMeta(self, stage):
+    return self.getStageAll(stage)[-1]['meta']
+
   def getStageRun(self, stage):
     return self.getStageAll(stage)[-1]
 
