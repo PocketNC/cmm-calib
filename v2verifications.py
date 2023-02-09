@@ -10,6 +10,7 @@ BEST_FIT_SPHERE_ERROR = 0.0254
 LINEAR_HOMING_REPEATABILITY = 0.001 * 25.4 # 0.001 inches, 0.0254 mm
 B_HOMING_REPEATABILITY = 0.04 # degrees
 A_HOMING_REPEATABILITY = 0.08 # degrees
+ANGULAR_ACCURACY = 0.05 # degrees
 
 class CalibException(Exception):
   pass
@@ -88,3 +89,20 @@ def verify_linear_axis_direction(dir1,dir2):
     raise CalibError("Linear axis parallelism exceeds reasonable limits: %s, %s, %s, expected <= %s" % (dir1,dir2,parallelism, LIMIT))
   else:
     logger.debug("Linear axis parallelism: %s, %s, %s, expected <= %s", dir1, dir2, parallelism, LIMIT)
+
+def verify_rotary_accuracy(errors, axis):
+  """
+  Check if error exceeded spec at any position for a set of rotary axis features
+  """
+  max_error_pair = (0,0)
+  failures = []
+  for (pos, err) in errors:
+    if abs(err) > abs(max_error[1]):
+      max_error_pair = (pos,err)
+    if abs(err) > ANGULAR_ACCURACY:
+      failures.append((pos,err))
+
+  if len(failures) > 0:
+    raise CalibException("%s accuracy failure. Expected max error <= %s exceeded at following points (pos, err): %s" % (axis, ANGULAR_ACCURACY, str(failures).strip('[]')))
+
+  return (max_error_pair,ANGULAR_ACCURACY)
