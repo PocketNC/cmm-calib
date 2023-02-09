@@ -383,7 +383,46 @@ async def probe_home_offset_y(client, y_pos_v2, a_pos_v2, b_pos_v2):
 
   return feat
 
-async def probe_top_plane(client, y_pos_v2):
+async def probe_top_plane(client, y_pos_v2, is_180=False):
+  orig = APPROX_FIXTURE_TOP_PLANE_CENTER + float3(0,-y_pos_v2,0)
+  await client.GoTo("Tool.Alignment(0,1,0)").send()
+  await client.SetProp("Tool.PtMeasPar.Approach(10)").send()
+  await client.SetProp("Tool.PtMeasPar.Search(12)").send()
+  await client.SetProp("Tool.PtMeasPar.HeadTouch(0)").send()
+  await client.GoTo((orig + float3(0,100,0)).ToXYZString()).ack()
+  await client.GoTo((orig + float3(0,10,0)).ToXYZString()).ack()
+
+  sign = -1 if is_180 else 1
+
+  fixture_top_face = Feature()
+
+  ptMeas = await client.PtMeas("%s,IJK(0,1,0)" % ((orig).ToXYZString())).data()
+  pt = float3.FromXYZString(ptMeas.data_list[0])
+  fixture_top_face.addPoint(*pt)
+
+  nextPt = orig + sign * float3(-5,0,-20)
+  ptMeas = await client.PtMeas("%s,IJK(0,1,0)" % (nextPt.ToXYZString())).data()
+  pt = float3.FromXYZString(ptMeas.data_list[0])
+  fixture_top_face.addPoint(*pt)
+
+  nextPt = orig + sign * float3(15,0,-20)
+  ptMeas = await client.PtMeas("%s,IJK(0,1,0)" % (nextPt.ToXYZString())).data()
+  pt = float3.FromXYZString(ptMeas.data_list[0])
+  fixture_top_face.addPoint(*pt)
+
+  nextPt = orig + sign * float3(5,0,25)
+  ptMeas = await client.PtMeas("%s,IJK(0,1,0)" % (nextPt.ToXYZString())).data()
+  pt = float3.FromXYZString(ptMeas.data_list[0])
+  fixture_top_face.addPoint(*pt)
+  
+  nextPt = orig + sign * float3(0,0,45)
+  ptMeas = await client.PtMeas("%s,IJK(0,1,0)" % (nextPt.ToXYZString())).data()
+  pt = float3.FromXYZString(ptMeas.data_list[0])
+  fixture_top_face.addPoint(*pt)
+
+  return fixture_top_face
+
+async def probe_top_plane_180(client, y_pos_v2):
   orig = APPROX_FIXTURE_TOP_PLANE_CENTER + float3(0,-y_pos_v2,0)
   await client.GoTo("Tool.Alignment(0,1,0)").send()
   await client.SetProp("Tool.PtMeasPar.Approach(10)").send()

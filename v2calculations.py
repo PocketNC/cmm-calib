@@ -213,7 +213,7 @@ def calc_home_offset_y_error(x_dir, y_dir, x_homing_features, probe_offsets_y_fe
 
   return np.dot(y_home_offset-x0, y_dir)
 
-def calc_b_table_offset(feat_origin_spindle_pos, feat_top_plane, y_dir):
+def calc_b_table_offset(feat_origin_spindle_pos, feat_top_plane, feat_top_plane_180, y_dir):
   '''
   This offset is supposed to be the distance along Y-axis between
   the CoR and the top of the B-table
@@ -221,17 +221,21 @@ def calc_b_table_offset(feat_origin_spindle_pos, feat_top_plane, y_dir):
   B-table height is defined by the 'top_plane' feature in PROBE_OFFSETS stage
   '''
   (_not_used, pos_origin) = feat_origin_spindle_pos.sphere()
-  top_plane = feat_top_plane.plane()
+  distances = []
 
-  if np.dot(top_plane[1], y_dir) < 0:
-    top_plane = (top_plane[0], -top_plane[1])
-
-  projected_pt = projectPointToPlane(pos_origin, top_plane)
+  for feat in [feat_top_plane, feat_top_plane_180]:
+    top_plane = feat.plane()
+    if np.dot(top_plane[1], y_dir) < 0:
+      top_plane = (top_plane[0], -top_plane[1])
+    projected_pt = projectPointToPlane(pos_origin, top_plane)
+    vec_top_plane_to_origin = pos_origin - projected_pt
+    dist_top_plane_to_origin = np.dot(vec_top_plane_to_origin, top_plane[1]) + PROBE_DIA/2
+    distances.append(dist_top_plane_to_origin)
+    logger.debug('dist_top_plane_to_origin %s' % dist_top_plane_to_origin)
   
-  vec_top_plane_to_origin = pos_origin - projected_pt
-  dist_top_plane_to_origin = np.dot(vec_top_plane_to_origin, top_plane[1]) + PROBE_DIA/2
-  logger.debug('dist_top_plane_to_origin %s' % dist_top_plane_to_origin)
-  b_table_offset = (dist_top_plane_to_origin + FIXTURE_HEIGHT) / 25.4
+  avg_dist_top_plane_to_origin = np.array(distances).mean()
+  logger.debug('average dist_top_plane_to_origin %s' % avg_dist_top_plane_to_origin)
+  b_table_offset = (avg_dist_top_plane_to_origin + FIXTURE_HEIGHT) / 25.4
   logger.debug('b_table_offset %s' % b_table_offset)
   return b_table_offset
 
@@ -280,7 +284,7 @@ def calc_home_offset_a(a_home_feats, x_dir, y_dir, z_dir, origin, a_comp):
     latch_positions.append(a_pos)
   a_latch_pos = float(np.array(latch_positions).mean())
 
-  a_home_offset = a_latch_pos - a_comp.sample(a_latch_pos)[1]
+  a_home_offset = a_latch_pos + a_comp.sample(a_latch_pos)[1]
   return a_home_offset
 
 def calc_home_offset_b(b_home_feats, x_dir, y_dir, z_dir, origin, b_comp):
