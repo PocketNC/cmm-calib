@@ -351,6 +351,10 @@ class Stages(Enum):
      `positions` - The B position of the spindle where each of the `features` were probed.
   """
 
+  UPLOAD_FILES = auto()
+  """
+  Upload calibration data
+  """
 
   VERIFY_X = auto()
   VERIFY_Y = auto()

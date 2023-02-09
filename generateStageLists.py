@@ -31,6 +31,7 @@ basic_calib_order = [
   Stages.VERIFY_OFFSETS,
   Stages.VERIFY_A_LINE,
   Stages.VERIFY_B_LINE,
+  Stages.UPLOAD_FILES
 ]
 
 advanced_calib_order = [
