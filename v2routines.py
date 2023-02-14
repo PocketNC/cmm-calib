@@ -183,7 +183,7 @@ async def probe_spindle_pos(client, machine, x_pos_v2, z_pos_v2):
     spindle_side_clearance = 22.5
     ball_dia = SPINDLE_BALL_DIA_10
   elif machine == V2_50:
-    z_home = float3(-71.75, -68.83, 24.1) (24.1, -71.75, -68.83)
+    z_home = float3(-71.75, -68.83, 24.1)
     spindle_side_clearance = 30
     ball_dia = SPINDLE_BALL_DIA_50
   else:
