@@ -97,7 +97,7 @@ def verify_rotary_accuracy(errors, axis):
   max_error_pair = (0,0)
   failures = []
   for (pos, err) in errors:
-    if abs(err) > abs(max_error[1]):
+    if abs(err) > abs(max_error_pair[1]):
       max_error_pair = (pos,err)
     if abs(err) > ANGULAR_ACCURACY:
       failures.append((pos,err))
