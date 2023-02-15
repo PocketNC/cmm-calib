@@ -805,18 +805,15 @@ async def probe_fixture_line(client, y_pos_v2, b_pos_v2):
   Do a head-probe line against 1 face of the probing fixture
   The fixture face being probed is on the upper rectangle, opposite from the peak of the vertical fin
   '''
-  orig = APPROX_COR
-  pos_bcor = orig + float3(0,-y_pos_v2,0)
-  logger.debug('pos_bcor %s', pos_bcor)
-  vec_cor_to_corner = float3(0.5*FIXTURE_DIAG,0,0)
-  vec_corner_to_start = float3(-15,0,-15)
+  pos_bcor = APPROX_COR + float3(0, -y_pos_v2, 0)
+  vec_cor_to_corner = float3(0.5*FIXTURE_DIAG,0,0) #imagining a point at the +X tip of the fixture
+  vec_corner_to_start = float3(-15,0,-15) #shift away from corner a bit, along the face
   vec_cor_to_start = vec_cor_to_corner + vec_corner_to_start
-  logger.debug('vec_cor_to_start %s', vec_cor_to_start)
   
   # rotate nominal touch point about y by b_pos_v2
   r = Rotation.from_euler('y', b_pos_v2, degrees=True)
   vectors = r.apply([ np.array(vec_cor_to_start), np.array((-1,0,-1)), np.array((1,0,-1)) ])
-  start_pos = float3(vectors[0]) + APPROX_COR
+  start_pos = float3(vectors[0]) + APPROX_COR + float3(0,-4,0)
   drive_vec = float3(vectors[1])
   face_norm = float3(vectors[2])
   logger.debug("start_pos %s, drive_vec %s, face_norm %s", start_pos, drive_vec, face_norm)
