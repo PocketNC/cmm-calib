@@ -81,14 +81,14 @@ def verify_linear_homing_repeatability(features, axis):
 
   return (max_dist, LINEAR_HOMING_REPEATABILITY)
 
-def verify_x_homing_accuracy(homing_features, offsets_features, x_dir, y_dir):
-  homing_error = v2calculations.calc_home_offset_x_error(x_dir, y_dir, homing_features, offsets_features)
+def verify_x_homing_accuracy(homing_features, offsets_features, x_dir, y_dir, z_dir):
+  homing_error = v2calculations.calc_home_offset_x_error(x_dir, y_dir, z_dir, homing_features, offsets_features)
   if abs(homing_error) > LINEAR_HOMING_REPEATABILITY:
     raise CalibException("X homing accuracy failure, expected error <= %s, found %s" % (LINEAR_HOMING_REPEATABILITY, homing_error))  
   return (homing_error, LINEAR_HOMING_REPEATABILITY)
 
 def verify_y_homing_accuracy(homing_features, offsets_features, x_dir, y_dir, z_dir, origin):
-  homing_error = v2calculations.calc_home_offset_y_error(x_dir, y_dir, homing_features, offsets_features)
+  homing_error = v2calculations.calc_home_offset_y_error(x_dir, y_dir, z_dir, homing_features, offsets_features)
   if abs(homing_error) > LINEAR_HOMING_REPEATABILITY:
     raise CalibException("Y homing accuracy failure, expected error <= %s, found %s" % (LINEAR_HOMING_REPEATABILITY, homing_error))  
   return (homing_error, LINEAR_HOMING_REPEATABILITY)
