@@ -3,7 +3,7 @@ Helper functions for performing calculations on probed `metrology.Feature`s and 
 """
 import numpy as np
 import math
-from metrology import Feature, angle_between_ccw_2d, intersectLines, angle_between, projectPointToPlane
+from metrology import Feature, angle_between_ccw_2d, intersectLines, angle_between, projectPointToPlane, line_plane_intersect
 from ipp import Csy
 import logging
 from compensation import calculateACompensation, calculateBCompensation
@@ -173,7 +173,7 @@ def calc_max_diff(numbers):
         max_diff = diff
   return max_diff
 
-def calc_home_offset_x_error(x_dir, y_dir, x_homing_features, probe_offsets_x_features):
+def calc_home_offset_x_error(x_dir, y_dir, z_dir, x_homing_features, probe_offsets_x_features):
   """
   """
 
@@ -183,9 +183,21 @@ def calc_home_offset_x_error(x_dir, y_dir, x_homing_features, probe_offsets_x_fe
   x0 = calc_sphere_centers(x_homing_features).average()
   logger.debug("x0 %s" % (x0,));
 
-  all_x_offset_points = Feature(probe_offsets_x_features[0].points().tolist() + probe_offsets_x_features[1].points().tolist())
+  all_x_offset_points = Feature()
 
-  x_home_offset = all_x_offset_points.projectToPlane((x0,planeN)).average()
+  for pt in probe_offsets_x_features[0].points():
+    line = (pt,z_dir)
+
+    newPt = line_plane_intersect(z_dir, pt, planeN, x0)
+    all_x_offset_points.addPoint(*newPt)
+
+  for pt in probe_offsets_x_features[1].points():
+    line = (pt,z_dir)
+
+    newPt = line_plane_intersect(z_dir, pt, planeN, x0)
+    all_x_offset_points.addPoint(*newPt)
+
+  x_home_offset = all_x_offset_points.average()
   logger.debug("x_home_offset %s" % (x_home_offset,));
 
   logger.debug("x_home_offset-x0 %s" % (x_home_offset-x0,));
@@ -193,7 +205,7 @@ def calc_home_offset_x_error(x_dir, y_dir, x_homing_features, probe_offsets_x_fe
 
   return np.dot(x_home_offset-x0, x_dir)
 
-def calc_home_offset_y_error(x_dir, y_dir, x_homing_features, probe_offsets_y_features):
+def calc_home_offset_y_error(x_dir, y_dir, z_dir, x_homing_features, probe_offsets_y_features):
   """
   """
 
@@ -203,9 +215,21 @@ def calc_home_offset_y_error(x_dir, y_dir, x_homing_features, probe_offsets_y_fe
   x0 = calc_sphere_centers(x_homing_features).average()
   logger.debug("x0 %s" % (x0,));
 
-  all_y_offset_points = Feature(probe_offsets_y_features[0].points().tolist() + probe_offsets_y_features[1].points().tolist())
+  all_y_offset_points = Feature()
 
-  y_home_offset = all_y_offset_points.projectToPlane((x0,planeN)).average()
+  for pt in probe_offsets_y_features[0].points():
+    line = (pt,z_dir)
+
+    newPt = line_plane_intersect(z_dir, pt, planeN, x0)
+    all_y_offset_points.addPoint(*newPt)
+
+  for pt in probe_offsets_y_features[1].points():
+    line = (pt,z_dir)
+
+    newPt = line_plane_intersect(z_dir, pt, planeN, x0)
+    all_y_offset_points.addPoint(*newPt)
+
+  y_home_offset = all_y_offset_points.average()
   logger.debug("y_home_offset %s" % (y_home_offset,));
 
   logger.debug("y_home_offset-x0 %s" % (y_home_offset-x0,));

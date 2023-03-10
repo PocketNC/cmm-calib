@@ -3,6 +3,8 @@ Helper functions that raise errors if a verification fails.
 """
 import v2calculations
 import logging
+from v2calculations import calc_sphere_centers
+from metrology import linePerpendicularity, angle_between, straightness
 
 logger = logging.getLogger(__name__)
 
@@ -12,8 +14,58 @@ B_HOMING_REPEATABILITY = 0.04 # degrees
 A_HOMING_REPEATABILITY = 0.08 # degrees
 ANGULAR_ACCURACY = 0.05 # degrees
 
+PERPENDICULARITY_SPEC = .002 # inches
+
 class CalibException(Exception):
   pass
+
+def verify_axes(xFeatures, yFeatures, zFeatures):
+  xLineFeature = calc_sphere_centers(xFeatures)
+  yLineFeature = calc_sphere_centers(yFeatures)
+  zLineFeature = calc_sphere_centers(zFeatures)
+
+  xLine = xLineFeature.line()
+  yLine = yLineFeature.line()
+  zLine = zLineFeature.line()
+
+  xyPerpendicularity = linePerpendicularity(yLineFeature, xLineFeature.line())/25.4
+  zyPerpendicularity = linePerpendicularity(yLineFeature, zLineFeature.line())/25.4
+  zxPerpendicularity = linePerpendicularity(xLineFeature, zLineFeature.line())/25.4
+
+  yxPerpendicularity = linePerpendicularity(xLineFeature, yLineFeature.line())/25.4
+  yzPerpendicularity = linePerpendicularity(zLineFeature, yLineFeature.line())/25.4
+  xzPerpendicularity = linePerpendicularity(zLineFeature, xLineFeature.line())/25.4
+
+  xStraightness = straightness(xLineFeature)/25.4
+  yStraightness = straightness(yLineFeature)/25.4
+  zStraightness = straightness(zLineFeature)/25.4
+
+  xyPerp = xyPerpendicularity if xStraightness < yStraightness else yxPerpendicularity
+  zxPerp = zxPerpendicularity if zStraightness < xStraightness else xzPerpendicularity
+  zyPerp = zyPerpendicularity if zStraightness < yStraightness else yzPerpendicularity
+
+  xyAngle = angle_between(xLine[1], yLine[1])
+  zxAngle = angle_between(zLine[1], xLine[1])
+  zyAngle = angle_between(zLine[1], xLine[1])
+
+  xyPass = xyPerp < PERPENDICULARITY_SPEC
+  zxPass = zxPerp < PERPENDICULARITY_SPEC
+  zyPass = zyPerp < PERPENDICULARITY_SPEC
+
+  overallPass = all([ xyPass, zxPass, zyPass ])
+
+  logger.info(f"XY Perpendicularity: {xyPerp:.6f} {'PASS' if xyPass else 'FAIL'}")
+  logger.info(f"XY Angle: {xyAngle}")
+  logger.info(f"ZX Perpendicularity: {zxPerp:.6f} {'PASS' if zxPass else 'FAIL'}")
+  logger.info(f"ZX Angle: {zxAngle}")
+  logger.info(f"ZY Perpendicularity: {zyPerp:.6f} {'PASS' if zyPass else 'FAIL'}")
+  logger.info(f"ZY Angle: {zyAngle}")
+  
+  if not overallPass:
+    err = f"One or more axes out of square by more than {PERPENDICULARITY_SPEC}. XY Perpendicularity: {xyPerp:.6f} inches, {xyAngle} degrees. ZX Perpendicularity: {zxPerp:.6f} inches, {zxAngle} degrees. ZY Perpendicularity: {zyPerp:.6f}, {zyAngle} degrees."
+    logger.error(err)
+    raise CalibException(err)
+
 
 def verify_sphere_diameters_within_tolerance(features, expected_dia):
   """Verifies that all best fit sphere diameters in features are within BEST_FIT_SPHERE_ERROR of expected_dia."""
