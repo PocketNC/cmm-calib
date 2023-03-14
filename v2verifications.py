@@ -4,7 +4,7 @@ Helper functions that raise errors if a verification fails.
 import v2calculations
 import logging
 from v2calculations import calc_sphere_centers
-from metrology import linePerpendicularity, angle_between, straightness
+from metrology import linePerpendicularity, angle_between, straightness, flatness
 
 logger = logging.getLogger(__name__)
 
@@ -15,9 +15,19 @@ A_HOMING_REPEATABILITY = 0.08 # degrees
 ANGULAR_ACCURACY = 0.05 # degrees
 
 PERPENDICULARITY_SPEC = .002 # inches
+L_BRACKET_FLATNESS = 0.0005 # inches
 
 class CalibException(Exception):
   pass
+
+def verify_top_face_flatness(feature):
+  f = flatness(feature) / 25.4
+
+  logger.info(f"L bracket top face flatness is {f} inches, expected <= {L_BRACKET_FLATNESS}")
+  if f > L_BRACKET_FLATNESS:
+    err = f"L bracket top face flatness is {f} inches, expected <= {L_BRACKET_FLATNESS} inches. Ensure nothing is on the surface."
+    logger.error(err)
+    raise CalibException(err)
 
 def verify_axes(xFeatures, yFeatures, zFeatures):
   xLineFeature = calc_sphere_centers(xFeatures)
