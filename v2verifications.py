@@ -56,7 +56,7 @@ def verify_axes(xFeatures, yFeatures, zFeatures):
 
   xyAngle = angle_between(xLine[1], yLine[1])
   zxAngle = angle_between(zLine[1], xLine[1])
-  zyAngle = angle_between(zLine[1], xLine[1])
+  zyAngle = angle_between(zLine[1], yLine[1])
 
   xyPass = xyPerp < PERPENDICULARITY_SPEC
   zxPass = zxPerp < PERPENDICULARITY_SPEC
