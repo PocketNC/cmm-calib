@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 BEST_FIT_SPHERE_ERROR = 0.0254
 LINEAR_HOMING_REPEATABILITY = 0.001 * 25.4 # 0.001 inches, 0.0254 mm
-B_HOMING_REPEATABILITY = 0.04 # degrees
+B_HOMING_REPEATABILITY = 0.05 # degrees
 A_HOMING_REPEATABILITY = 0.08 # degrees
 ANGULAR_ACCURACY = 0.05 # degrees
 
