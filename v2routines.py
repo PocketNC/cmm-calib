@@ -520,7 +520,7 @@ async def prep_probe_fixture_fin(client, y_pos_v2, a_pos_v2):
   orig = ORIGIN_A_START_PROBE_POS
   a_cor = orig + float3(0,-y_pos_v2,0)
 
-  await client.SetProp("Tool.PtMeasPar.Search(5)").ack()
+  await client.SetProp("Tool.PtMeasPar.Search(6)").ack()
   await client.SetProp("Tool.PtMeasPar.Approach(5)").ack()
   await client.GoTo((a_cor + float3(-100, 150, 0)).ToXYZString()).complete()
   await client.GoTo("Tool.Alignment(-1,0,0)").complete()
