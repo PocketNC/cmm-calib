@@ -72,7 +72,7 @@ def verify_axes(xFeatures, yFeatures, zFeatures):
   logger.info(f"ZY Angle: {zyAngle}")
   
   if not overallPass:
-    err = f"One or more axes out of square by more than {PERPENDICULARITY_SPEC}. XY Perpendicularity: {xyPerp:.6f} inches, {xyAngle} degrees. ZX Perpendicularity: {zxPerp:.6f} inches, {zxAngle} degrees. ZY Perpendicularity: {zyPerp:.6f}, {zyAngle} degrees."
+    err = f"Failed perpendicularity spec {PERPENDICULARITY_SPEC}. XY: {xyPerp:.6f} inches, {xyAngle:.4f} degrees. ZX: {zxPerp:.6f} inches, {zxAngle:.4f} degrees. ZY: {zyPerp:.6f}, {zyAngle:.4f} degrees."
     logger.error(err)
     raise CalibException(err)
 
